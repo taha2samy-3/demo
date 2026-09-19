@@ -1,0 +1,4 @@
+name: eks-ebpf-pixie
+runtime:
+  name: python
+description: A Pulumi program to provision an AWS EKS cluster optimized for eBPF-based observability platforms (Pixie)

@@ -1,0 +1,20 @@
+image:
+  repository: myrepo/tls-demo
+  variant: full
+  pullPolicy: IfNotPresent
+
+sendIntervalSeconds: "5"
+
+resources:
+  limits:
+    memory: "128Mi"
+    cpu: "500m"
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+
+services:
+  - name: service-a
+    peer: service-b
+  - name: service-b
+    peer: service-a

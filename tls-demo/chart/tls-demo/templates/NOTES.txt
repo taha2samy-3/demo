@@ -1,0 +1,14 @@
+The tls-demo has been installed!
+
+Current variant: {{ .Values.image.variant }}
+
+To view the logs of the services, use:
+  kubectl logs -l app.kubernetes.io/part-of=tls-demo -f
+
+To switch the variant to 'stripped', run:
+  task use-stripped REPO=<your-repo>
+  (or helm upgrade tls-demo ./chart/tls-demo --set image.variant=stripped)
+
+To switch the variant to 'full', run:
+  task use-full REPO=<your-repo>
+  (or helm upgrade tls-demo ./chart/tls-demo --set image.variant=full)

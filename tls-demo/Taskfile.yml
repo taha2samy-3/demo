@@ -1,0 +1,41 @@
+version: '3'
+
+vars:
+  REPO: myrepo/tls-demo
+
+tasks:
+  build-full:
+    desc: Build the full image with symbols
+    cmds:
+      - docker build --target full -t {{.REPO}}:full .
+
+  build-stripped:
+    desc: Build the stripped image without symbols
+    cmds:
+      - docker build --target stripped -t {{.REPO}}:stripped .
+
+  push:
+    desc: Push both images to the registry
+    cmds:
+      - docker push {{.REPO}}:full
+      - docker push {{.REPO}}:stripped
+
+  install:
+    desc: Install the helm chart
+    cmds:
+      - helm upgrade --install tls-demo ./chart/tls-demo --set image.repository={{.REPO}} --set image.variant=full
+
+  use-full:
+    desc: Switch to the full variant
+    cmds:
+      - helm upgrade tls-demo ./chart/tls-demo --set image.repository={{.REPO}} --set image.variant=full
+
+  use-stripped:
+    desc: Switch to the stripped variant
+    cmds:
+      - helm upgrade tls-demo ./chart/tls-demo --set image.repository={{.REPO}} --set image.variant=stripped
+
+  uninstall:
+    desc: Uninstall the helm chart
+    cmds:
+      - helm uninstall tls-demo || true

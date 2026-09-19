@@ -1,0 +1,15 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pulumi = ">=3.0.0"
+pulumi-aws = ">=6.0.0"
+pulumi-awsx = ">=2.0.0"
+pulumi-eks = ">=2.0.0"
+
+[dev-packages]
+
+[requires]
+python_version = "3.12"

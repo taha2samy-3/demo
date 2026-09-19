@@ -1,0 +1,3 @@
+[tools]
+pulumi = "latest"
+python = "3.12"
