@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixie Mock - OTLP PII Analyzer A/B Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 500: '#6366f1', 600: '#4f46e5' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="h-full flex flex-col font-sans antialiased bg-slate-900 text-slate-100">
+
+    <!-- Header -->
+    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-500/10 rounded-lg border border-indigo-500/20 text-indigo-400">
+                    <i class="fa-solid fa-flask-vial text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-white tracking-wide">Pixie OTLP PII Inspector (A/B Testing Lab)</h1>
+                    <p class="text-xs text-slate-400">Real-time eBPF HTTP Payload Dual-Model NLP Analysis</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-4">
+                <!-- A/B Model Selector Dropdown -->
+                <div class="flex items-center space-x-2 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-indigo-500/40">
+                    <i class="fa-solid fa-microchip text-indigo-400 text-xs"></i>
+                    <label for="model-select" class="text-xs font-medium text-slate-300">Active Model:</label>
+                    <select id="model-select" class="bg-slate-800 text-xs font-semibold text-indigo-300 rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-indigo-500">
+                        <option value="fast">Fast Model (6.5MB - CNN/Rules)</option>
+                        <option value="distilbert">DistilBERT Model (260MB - Transformer)</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center space-x-2 text-xs text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-full border border-slate-700/50">
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span>Polling 2s</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+        <!-- Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+            <!-- Total Logs -->
+            <div class="bg-slate-800/60 rounded-xl p-5 border border-slate-700/50 shadow-lg backdrop-blur">
+                <div class="flex items-center justify-between text-slate-400 text-xs uppercase font-semibold">
+                    <span>Total Logs</span>
+                    <i class="fa-solid fa-server"></i>
+                </div>
+                <div class="mt-3 text-3xl font-extrabold text-white" id="metric-total">0</div>
+            </div>
+
+            <!-- PII Detected -->
+            <div class="bg-rose-950/30 rounded-xl p-5 border border-rose-800/40 shadow-lg backdrop-blur">
+                <div class="flex items-center justify-between text-rose-300 text-xs uppercase font-semibold">
+                    <span>PII Detected</span>
+                    <i class="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                </div>
+                <div class="mt-3 text-3xl font-extrabold text-rose-400" id="metric-pii">0</div>
+            </div>
+
+            <!-- Clean Logs -->
+            <div class="bg-emerald-950/30 rounded-xl p-5 border border-emerald-800/40 shadow-lg backdrop-blur">
+                <div class="flex items-center justify-between text-emerald-300 text-xs uppercase font-semibold">
+                    <span>Clean Logs</span>
+                    <i class="fa-solid fa-circle-check text-emerald-400"></i>
+                </div>
+                <div class="mt-3 text-3xl font-extrabold text-emerald-400" id="metric-clean">0</div>
+            </div>
+
+            <!-- Active Model Info -->
+            <div class="bg-slate-800/60 rounded-xl p-5 border border-slate-700/50 shadow-lg backdrop-blur">
+                <div class="flex items-center justify-between text-slate-400 text-xs uppercase font-semibold">
+                    <span>Current Engine</span>
+                    <i class="fa-solid fa-brain text-indigo-400"></i>
+                </div>
+                <div class="mt-3 flex items-center space-x-2">
+                    <span id="active-model-badge" class="px-2.5 py-1 rounded text-xs font-bold font-mono uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        FAST
+                    </span>
+                    <span class="text-xs text-slate-400" id="active-model-desc">en_spacy_pii_fast</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Table -->
+        <div class="bg-slate-800/60 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden backdrop-blur">
+            <div class="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
+                <h2 class="text-base font-semibold text-white flex items-center space-x-2">
+                    <i class="fa-solid fa-list-check text-indigo-400"></i>
+                    <span>Received OTLP Log Stream</span>
+                </h2>
+                <div class="relative">
+                    <input type="text" id="search-input" placeholder="Filter logs..." 
+                           class="bg-slate-900/80 text-xs text-slate-200 px-3 py-1.5 pl-8 rounded-lg border border-slate-700 focus:outline-none focus:border-indigo-500 w-64 transition">
+                    <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-xs text-slate-500"></i>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-900/60 text-slate-400 text-xs uppercase font-medium tracking-wider border-b border-slate-700/50">
+                            <th class="py-3 px-6">Timestamp</th>
+                            <th class="py-3 px-6">Log Body (HTTP Payload)</th>
+                            <th class="py-3 px-6">PII Status</th>
+                            <th class="py-3 px-6">Model Used</th>
+                            <th class="py-3 px-6">Detected Entities</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-tbody" class="divide-y divide-slate-700/40 text-sm">
+                        <tr>
+                            <td colspan="5" class="py-8 text-center text-slate-500">
+                                <i class="fa-solid fa-spinner animate-spin text-xl text-indigo-400 mb-2"></i>
+                                <p>Waiting for incoming OTLP logs on port 4317...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        let allLogs = [];
+        const modelSelect = document.getElementById('model-select');
+
+        modelSelect.addEventListener('change', async (e) => {
+            const selectedModel = e.target.value;
+            try {
+                const res = await fetch('/api/set_model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: selectedModel })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    console.log('Model switched successfully:', data.current_model);
+                    updateActiveModelUI(data.current_model);
+                }
+            } catch (err) {
+                console.error('Failed to set model:', err);
+            }
+        });
+
+        function updateActiveModelUI(modelName) {
+            const badge = document.getElementById('active-model-badge');
+            const desc = document.getElementById('active-model-desc');
+
+            if (modelName === 'distilbert') {
+                badge.innerText = 'DISTILBERT';
+                badge.className = 'px-2.5 py-1 rounded text-xs font-bold font-mono uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30';
+                desc.innerText = 'en_spacy_pii_distilbert';
+            } else {
+                badge.innerText = 'FAST';
+                badge.className = 'px-2.5 py-1 rounded text-xs font-bold font-mono uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+                desc.innerText = 'en_spacy_pii_fast';
+            }
+            modelSelect.value = modelName;
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    document.getElementById('metric-total').innerText = data.summary.total_logs;
+                    document.getElementById('metric-pii').innerText = data.summary.pii_detected_count;
+                    document.getElementById('metric-clean').innerText = data.summary.clean_count;
+
+                    updateActiveModelUI(data.current_model);
+
+                    allLogs = data.logs;
+                    renderLogs();
+                }
+            } catch (err) {
+                console.error('Error fetching logs:', err);
+            }
+        }
+
+        function renderLogs() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const tbody = document.getElementById('logs-tbody');
+
+            const filtered = allLogs.filter(log => {
+                return log.log_body.toLowerCase().includes(searchTerm) ||
+                       (log.entities && log.entities.some(e => e.text.toLowerCase().includes(searchTerm) || e.label.toLowerCase().includes(searchTerm)));
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-slate-500">No matching log records found.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(log => {
+                const hasPii = log.has_pii;
+                const rowBg = hasPii ? 'bg-rose-950/20 hover:bg-rose-950/30' : 'hover:bg-slate-700/30';
+                
+                const statusBadge = hasPii
+                    ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                         <i class="fa-solid fa-triangle-exclamation mr-1"></i> PII DETECTED
+                       </span>`
+                    : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                         <i class="fa-solid fa-check mr-1"></i> CLEAN
+                       </span>`;
+
+                const modelUsed = log.model_used || 'fast';
+                const modelBadge = modelUsed === 'distilbert'
+                    ? `<span class="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-purple-900/40 text-purple-300 border border-purple-700/50">distilbert</span>`
+                    : `<span class="px-2 py-0.5 rounded text-xs font-mono font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-700/50">fast</span>`;
+
+                const entitiesHtml = (log.entities && log.entities.length > 0)
+                    ? log.entities.map(e => `
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono bg-rose-900/50 text-rose-200 border border-rose-700/50 mr-1 mb-1">
+                            <strong class="text-rose-400 mr-1">${e.label}:</strong> ${escapeHtml(e.text)}
+                        </span>`).join('')
+                    : `<span class="text-xs text-slate-500 italic">None</span>`;
+
+                const formattedTime = new Date(log.timestamp).toLocaleTimeString();
+
+                return `
+                    <tr class="transition ${rowBg}">
+                        <td class="py-3 px-6 text-xs text-slate-400 font-mono whitespace-nowrap">${formattedTime}</td>
+                        <td class="py-3 px-6 font-mono text-xs text-slate-200 break-all max-w-md">
+                            <div class="bg-slate-900/80 p-2 rounded border border-slate-700/50">${escapeHtml(log.log_body)}</div>
+                        </td>
+                        <td class="py-3 px-6 whitespace-nowrap">${statusBadge}</td>
+                        <td class="py-3 px-6 whitespace-nowrap">${modelBadge}</td>
+                        <td class="py-3 px-6">${entitiesHtml}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        document.getElementById('search-input').addEventListener('input', renderLogs);
+        fetchLogs();
+        setInterval(fetchLogs, 2000);
+    </script>
+</body>
+</html>

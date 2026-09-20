@@ -2,3 +2,13 @@
 kubeconfig.yaml
 venv/
 *.zip
+*.whl
+*.pyc
+__pycache__/
+# Logs
+logs/
+*.log
+# Distribution / build
+dist/
+build/
+*.egg-info/
