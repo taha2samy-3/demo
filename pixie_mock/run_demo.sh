@@ -24,7 +24,7 @@ if [ "$1" == "--docker" ]; then
 
     echo "=== [2/2] Building and Running Docker Container ==="
     docker build -t pixie-mock:latest .
-    docker run --rm -p 5000:5000 -p 4317:4317 --name pixie-mock-container pixie-mock:latest
+    docker run --rm -p 5000:5000 -p 4317:4317 -e ENABLE_MOCK_VIZIER=true --name pixie-mock-container pixie-mock:latest
     exit 0
 fi
 

@@ -1,23 +1,14 @@
-FROM python:3.12-slim
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gcc \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Copy requirements and model wheels
+# Copy requirements
 COPY requirements.txt /app/requirements.txt
-COPY en_spacy_pii_fast-1.0.0-py3-none-any.whl /app/en_spacy_pii_fast-1.0.0-py3-none-any.whl
-COPY en_spacy_pii_distilbert-1.0.0-py3-none-any.whl /app/en_spacy_pii_distilbert-1.0.0-py3-none-any.whl
 
-# Install Python packages and both SpaCy PII models
+# Install Python packages and both SpaCy PII models from Hugging Face
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --no-deps /app/en_spacy_pii_fast-1.0.0-py3-none-any.whl && \
-    pip install --no-cache-dir --no-deps /app/en_spacy_pii_distilbert-1.0.0-py3-none-any.whl
+    pip install --no-cache-dir --no-deps https://huggingface.co/beki/en_spacy_pii_fast/resolve/main/en_spacy_pii_fast-any-py3-none-any.whl && \
+    pip install --no-cache-dir --no-deps https://huggingface.co/beki/en_spacy_pii_distilbert/resolve/main/en_spacy_pii_distilbert-any-py3-none-any.whl
 
 # Copy application source code
 COPY app/ /app/app/
@@ -29,5 +20,7 @@ RUN chmod +x /app/entrypoint.sh
 EXPOSE 4317 5000
 
 ENV PYTHONPATH=/app
+ENV ENABLE_MOCK_VIZIER=false
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+

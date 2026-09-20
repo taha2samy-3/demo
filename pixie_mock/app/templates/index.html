@@ -238,11 +238,26 @@
                     : `<span class="text-xs text-slate-500 italic">None</span>`;
 
                 const formattedTime = new Date(log.timestamp).toLocaleTimeString();
+                const sourceType = log.source_type || 'log';
+                const bodyKind = log.span_info?.body_kind || 'body';
+                const sourceBadge = sourceType === 'span'
+                    ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-cyan-900/60 text-cyan-300 border border-cyan-700/50 mr-1.5"><i class="fa-solid fa-diagram-project mr-1"></i>SPAN (${bodyKind})</span>`
+                    : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono uppercase bg-slate-800 text-slate-400 border border-slate-700 mr-1.5"><i class="fa-solid fa-file-lines mr-1"></i>LOG</span>`;
+
+                const spanDetails = log.span_info
+                    ? `<div class="text-[11px] text-slate-400 mb-1 font-sans flex items-center space-x-2">
+                         <span class="font-semibold text-slate-300">${log.span_info.http_method || ''} ${escapeHtml(log.span_info.name || '')}</span>
+                         ${log.span_info.http_status_code ? `<span class="px-1 bg-slate-800 rounded text-slate-300 font-mono">${log.span_info.http_status_code}</span>` : ''}
+                         ${log.span_info.k8s_pod_name ? `<span class="text-slate-500 font-mono">pod:${escapeHtml(log.span_info.k8s_pod_name)}</span>` : ''}
+                       </div>`
+                    : '';
 
                 return `
                     <tr class="transition ${rowBg}">
                         <td class="py-3 px-6 text-xs text-slate-400 font-mono whitespace-nowrap">${formattedTime}</td>
                         <td class="py-3 px-6 font-mono text-xs text-slate-200 break-all max-w-md">
+                            <div class="mb-1">${sourceBadge}</div>
+                            ${spanDetails}
                             <div class="bg-slate-900/80 p-2 rounded border border-slate-700/50">${escapeHtml(log.log_body)}</div>
                         </td>
                         <td class="py-3 px-6 whitespace-nowrap">${statusBadge}</td>
