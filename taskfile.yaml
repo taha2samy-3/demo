@@ -12,77 +12,43 @@ vars:
 
 tasks:
   default:
-    desc: 'List available tasks'
     cmds:
       - task --list
     silent: true
 
-  # ===========================================================================
-  # Install Tasks
-  # ===========================================================================
   install-full:
-    desc: 'Deploy full image variant into namespace: {{.NS_FULL}}'
     cmds:
-      - echo "Installing full variant into {{.NS_FULL}} using KUBECONFIG=${KUBECONFIG}..."
-      - >
-        helm upgrade --install tls-demo-full {{.CHART_DIR}}
-        --namespace {{.NS_FULL}}
-        --create-namespace
-        -f {{.CHART_DIR}}/values.yaml
-        -f {{.CHART_DIR}}/values-full.yaml
+      - 'helm upgrade --install tls-demo-full {{.CHART_DIR}} -n {{.NS_FULL}} --create-namespace -f {{.CHART_DIR}}/values.yaml -f {{.CHART_DIR}}/values-full.yaml'
 
   install-stripped:
-    desc: 'Deploy stripped image variant into namespace: {{.NS_STRIPPED}}'
     cmds:
-      - echo "Installing stripped variant into {{.NS_STRIPPED}} using KUBECONFIG=${KUBECONFIG}..."
-      - >
-        helm upgrade --install tls-demo-stripped {{.CHART_DIR}}
-        --namespace {{.NS_STRIPPED}}
-        --create-namespace
-        -f {{.CHART_DIR}}/values.yaml
-        -f {{.CHART_DIR}}/values-stripped.yaml
+      - 'helm upgrade --install tls-demo-stripped {{.CHART_DIR}} -n {{.NS_STRIPPED}} --create-namespace -f {{.CHART_DIR}}/values.yaml -f {{.CHART_DIR}}/values-stripped.yaml'
 
   install-all:
-    desc: 'Deploy both full and stripped variants into their own namespaces'
     deps: [install-full, install-stripped]
 
-  # ===========================================================================
-  # Observability & Status
-  # ===========================================================================
   status:
-    desc: 'Check pod status and image tags across both namespaces'
     cmds:
-      - echo "================== [Namespace: {{.NS_FULL}}] =================="
-      - kubectl get pods -n {{.NS_FULL}} -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image
-      - echo ""
-      - echo "================ [Namespace: {{.NS_STRIPPED}}] ================"
-      - kubectl get pods -n {{.NS_STRIPPED}} -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image
+      - 'kubectl get pods -n {{.NS_FULL}} -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image"'
+      - 'kubectl get pods -n {{.NS_STRIPPED}} -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image"'
 
   logs-full:
-    desc: 'Follow logs for full variant'
     cmds:
-      - kubectl logs -n {{.NS_FULL}} -l app.kubernetes.io/part-of=tls-demo -f
+      - 'kubectl logs -n {{.NS_FULL}} -l app.kubernetes.io/part-of=tls-demo -f'
 
   logs-stripped:
-    desc: 'Follow logs for stripped variant'
     cmds:
-      - kubectl logs -n {{.NS_STRIPPED}} -l app.kubernetes.io/part-of=tls-demo -f
+      - 'kubectl logs -n {{.NS_STRIPPED}} -l app.kubernetes.io/part-of=tls-demo -f'
 
-  # ===========================================================================
-  # Teardown Tasks
-  # ===========================================================================
   uninstall-full:
-    desc: 'Remove full variant and delete its namespace'
     cmds:
-      - helm uninstall tls-demo-full -n {{.NS_FULL}} || true
-      - kubectl delete namespace {{.NS_FULL}} --ignore-not-found=true
+      - 'helm uninstall tls-demo-full -n {{.NS_FULL}} || true'
+      - 'kubectl delete namespace {{.NS_FULL}} --ignore-not-found=true'
 
   uninstall-stripped:
-    desc: 'Remove stripped variant and delete its namespace'
     cmds:
-      - helm uninstall tls-demo-stripped -n {{.NS_STRIPPED}} || true
-      - kubectl delete namespace {{.NS_STRIPPED}} --ignore-not-found=true
+      - 'helm uninstall tls-demo-stripped -n {{.NS_STRIPPED}} || true'
+      - 'kubectl delete namespace {{.NS_STRIPPED}} --ignore-not-found=true'
 
   uninstall-all:
-    desc: 'Remove both variants and their namespaces'
     deps: [uninstall-full, uninstall-stripped]
