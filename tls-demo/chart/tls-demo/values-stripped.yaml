@@ -1,0 +1,3 @@
+# Overlay values for the 'stripped' image variant (symbols removed via -ldflags="-s -w")
+image:
+  variant: stripped

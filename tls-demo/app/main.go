@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +22,23 @@ import (
 	"syscall"
 	"time"
 )
+
+var wordList = []string{
+	"alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
+	"golf", "hotel", "india", "juliet", "kilo", "lima",
+	"mike", "november", "oscar", "papa", "quebec", "romeo",
+	"sierra", "tango", "uniform", "victor", "whiskey", "xray",
+	"yankee", "zulu", "ebpf", "kernel", "packet", "stream",
+}
+
+type Payload struct {
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	From      string `json:"from"`
+	Marker    string `json:"marker"`
+	Words     string `json:"words"`
+	Padding   string `json:"padding"`
+}
 
 func main() {
 	svcName := os.Getenv("SERVICE_NAME")
@@ -34,14 +52,24 @@ func main() {
 		logger.Error("PEER_ADDR is required")
 		os.Exit(1)
 	}
+
+	peerHost, _, err := net.SplitHostPort(peerAddr)
+	if err != nil {
+		logger.Error("invalid PEER_ADDR format, expected host:port", "peer_addr", peerAddr, "error", err)
+		os.Exit(1)
+	}
+
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
 		listenAddr = ":8443"
 	}
 	intervalSecs := 5
 	if v := os.Getenv("SEND_INTERVAL_SECONDS"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			intervalSecs = i
+		} else {
+			logger.Warn("invalid SEND_INTERVAL_SECONDS, must be greater than 0; using default 5", "value", v)
+			intervalSecs = 5
 		}
 	}
 
@@ -84,6 +112,7 @@ func main() {
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -99,7 +128,11 @@ func main() {
 		var reqData struct {
 			ID string `json:"id"`
 		}
-		json.Unmarshal(body, &reqData)
+		if err := json.Unmarshal(body, &reqData); err != nil {
+			logger.Warn("invalid JSON payload received", "peer_cn", peerCN, "error", err)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
 
 		respData := map[string]string{"status": "ok", "msg": "received"}
 		respBytes, _ := json.Marshal(respData)
@@ -124,10 +157,10 @@ func main() {
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)), // Force HTTP/1.1 internally
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
 	}
 
 	// 2. Client setup
-	peerHost := strings.Split(peerAddr, ":")[0]
 	clientTLSConfig := &tls.Config{
 		RootCAs:      caPool,
 		Certificates: []tls.Certificate{cert},
@@ -138,6 +171,7 @@ func main() {
 
 	tr := &http.Transport{
 		TLSClientConfig:   clientTLSConfig,
+		DisableKeepAlives: true,
 		ForceAttemptHTTP2: false,
 		TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper), // Force HTTP/1.1 internally
 	}
@@ -175,7 +209,11 @@ func main() {
 			}
 			if err := pingPeer(client, sendURL); err != nil {
 				logger.Info("Waiting for peer to be ready...", "error", err.Error())
-				time.Sleep(2 * time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
 				continue
 			}
 			logger.Info("Peer is ready")
@@ -222,7 +260,7 @@ func pingPeer(client *http.Client, url string) error {
 func sendPayload(client *http.Client, url string, from string, logger *slog.Logger) {
 	start := time.Now()
 	payload, id := generatePayload(from)
-	
+
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		logger.Error("failed to create request", "error", err)
@@ -236,7 +274,7 @@ func sendPayload(client *http.Client, url string, from string, logger *slog.Logg
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	respBody, _ := io.ReadAll(resp.Body)
 	peerCN := "unknown"
 	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
@@ -254,27 +292,38 @@ func sendPayload(client *http.Client, url string, from string, logger *slog.Logg
 }
 
 func generatePayload(from string) ([]byte, string) {
-	// Payload between ~200 bytes and ~2 KB
-	size, _ := rand.Int(rand.Reader, big.NewInt(1800))
-	padSize := 100 + size.Int64()
-	pad := make([]byte, padSize)
+	// Random words from wordList
+	numWordsBig, _ := rand.Int(rand.Reader, big.NewInt(10))
+	numWords := 5 + int(numWordsBig.Int64())
+	words := make([]string, numWords)
+	for i := 0; i < numWords; i++ {
+		idxBig, _ := rand.Int(rand.Reader, big.NewInt(int64(len(wordList))))
+		words[i] = wordList[idxBig.Int64()]
+	}
+	wordsStr := strings.Join(words, " ")
+
+	// Generate padding to keep total payload size between ~200 B and 2 KB
+	// Raw padding size between 50 and 800 bytes -> hex encoded length between 100 and 1600 bytes
+	padRawLenBig, _ := rand.Int(rand.Reader, big.NewInt(750))
+	padRawLen := 50 + padRawLenBig.Int64()
+	pad := make([]byte, padRawLen)
 	rand.Read(pad)
 
 	secret := make([]byte, 16)
 	rand.Read(secret)
 	secretHex := hex.EncodeToString(secret)
-	
+
 	idBytes := make([]byte, 8)
 	rand.Read(idBytes)
 	id := hex.EncodeToString(idBytes)
 
-	data := map[string]interface{}{
-		"id":        id,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
-		"from":      from,
-		"marker":    "DEMO-SECRET-" + secretHex,
-		"padding":   hex.EncodeToString(pad), // doubles the byte size of padding
-		"words":     "lorem ipsum dolor sit amet",
+	data := Payload{
+		ID:        id,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		From:      from,
+		Marker:    "DEMO-SECRET-" + secretHex,
+		Words:     wordsStr,
+		Padding:   hex.EncodeToString(pad),
 	}
 	b, _ := json.Marshal(data)
 	return b, id
@@ -284,3 +333,4 @@ func randomJitter() time.Duration {
 	n, _ := rand.Int(rand.Reader, big.NewInt(1000))
 	return time.Duration(n.Int64()) * time.Millisecond
 }
+

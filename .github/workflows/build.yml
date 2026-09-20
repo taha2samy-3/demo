@@ -1,0 +1,65 @@
+name: Build Multi-Arch Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: 'Push images to GHCR?'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [full, stripped]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up QEMU for ARM emulation on x86_64 runners
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Set up Docker Buildx for multi-architecture builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Convert repository name to lowercase (Docker tags require lowercase)
+      - name: Set repository image environment
+        run: |
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "Target Image: $IMAGE_NAME/tls-demo:${{ matrix.target }}"
+
+      # Authenticate to GitHub Container Registry (GHCR)
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.event.inputs.push_image == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build and push multi-arch images (amd64 and arm64)
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./tls-demo
+          file: ./tls-demo/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event.inputs.push_image }}
+          tags: |
+            ${{ env.IMAGE_NAME }}/tls-demo:${{ matrix.target }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

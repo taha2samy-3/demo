@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/name: {{ .name }}
     app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/part-of: tls-demo
-    variant: {{ $.Values.image.variant }}
+    variant: {{ required "image.variant is required (e.g. -f values-full.yaml or -f values-stripped.yaml)" $.Values.image.variant }}
 spec:
   replicas: 1
   selector:
@@ -21,15 +21,17 @@ spec:
         app.kubernetes.io/name: {{ .name }}
         app.kubernetes.io/instance: {{ $.Release.Name }}
         app.kubernetes.io/part-of: tls-demo
-        variant: {{ $.Values.image.variant }}
+        variant: {{ required "image.variant is required (e.g. -f values-full.yaml or -f values-stripped.yaml)" $.Values.image.variant }}
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: app
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.variant }}"
+          image: "{{ $.Values.image.repository }}:{{ required "image.variant is required (e.g. -f values-full.yaml or -f values-stripped.yaml)" $.Values.image.variant }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           env:
             - name: SERVICE_NAME
@@ -62,3 +64,4 @@ spec:
               drop:
                 - ALL
 {{- end }}
+

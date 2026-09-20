@@ -1,6 +1,7 @@
 REPO ?= myrepo/tls-demo
+NAMESPACE ?= tls-demo
 
-.PHONY: build-full build-stripped push install use-full use-stripped uninstall
+.PHONY: build-full build-stripped push install-full install-stripped use-full use-stripped uninstall template-full template-stripped
 
 build-full:
 	docker build --target full -t $(REPO):full .
@@ -12,14 +13,22 @@ push:
 	docker push $(REPO):full
 	docker push $(REPO):stripped
 
-install:
-	helm upgrade --install tls-demo ./chart/tls-demo --set image.repository=$(REPO) --set image.variant=full
+install-full:
+	helm upgrade --install tls-demo ./chart/tls-demo -n $(NAMESPACE) --create-namespace --set image.repository=$(REPO) -f chart/tls-demo/values-full.yaml
 
-use-full:
-	helm upgrade tls-demo ./chart/tls-demo --set image.repository=$(REPO) --set image.variant=full
+install-stripped:
+	helm upgrade --install tls-demo ./chart/tls-demo -n $(NAMESPACE) --create-namespace --set image.repository=$(REPO) -f chart/tls-demo/values-stripped.yaml
 
-use-stripped:
-	helm upgrade tls-demo ./chart/tls-demo --set image.repository=$(REPO) --set image.variant=stripped
+use-full: install-full
+
+use-stripped: install-stripped
 
 uninstall:
-	helm uninstall tls-demo || true
+	helm uninstall tls-demo -n $(NAMESPACE) || true
+
+template-full:
+	helm template tls-demo ./chart/tls-demo -n $(NAMESPACE) --set image.repository=$(REPO) -f chart/tls-demo/values-full.yaml
+
+template-stripped:
+	helm template tls-demo ./chart/tls-demo -n $(NAMESPACE) --set image.repository=$(REPO) -f chart/tls-demo/values-stripped.yaml
+

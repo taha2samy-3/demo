@@ -1,7 +1,7 @@
 image:
   repository: myrepo/tls-demo
-  variant: full
-  pullPolicy: IfNotPresent
+  variant: ""
+  pullPolicy: Always
 
 sendIntervalSeconds: "5"
 
@@ -18,3 +18,4 @@ services:
     peer: service-b
   - name: service-b
     peer: service-a
+

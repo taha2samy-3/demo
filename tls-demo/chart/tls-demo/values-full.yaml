@@ -1,0 +1,3 @@
+# Overlay values for the 'full' image variant (includes symbols and DWARF debug info for eBPF tracing)
+image:
+  variant: full

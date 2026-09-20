@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Note: Base images (golang:1.22, alpine:3.19, static-debian12) are kept on Go 1.22 for compatibility with Pixie's Go TLS tracing, even though these image versions are past end of support.
 FROM --platform=linux/amd64 alpine:3.19 AS certs
 RUN apk add --no-cache openssl
 ARG NAMESPACE=tls-demo
@@ -30,6 +31,9 @@ RUN for svc in service-a service-b; do \
       openssl x509 -req -in ${svc}.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out ${svc}.crt -days 365 -extensions v3_req -extfile ext.cnf; \
     done
 
+# Clean up non-runtime certificate files so only ca.crt, service-a.crt/.key, and service-b.crt/.key remain
+RUN rm -f /certs/ca.key /certs/ca.srl /certs/*.csr /certs/ext.cnf
+
 # Stage: full build
 FROM --platform=linux/amd64 golang:1.22 AS build-full
 RUN apt-get update && apt-get install -y binutils
@@ -37,9 +41,11 @@ WORKDIR /src
 COPY app/ ./
 # Normal build, keeps symbols
 RUN CGO_ENABLED=0 go build -o /app main.go
-# Verify symbol table exists (.symtab or .debug_info/.zdebug_info). Fail build if missing.
+# Verify symbol table exists: BOTH .symtab AND (.debug_info or .zdebug_info). Fail build if missing.
 RUN readelf -S /app > /tmp/sections && \
-    (grep -q -E '\.symtab|\.debug_info|\.zdebug_info' /tmp/sections || (echo "ERROR: Symbols missing in full build!" && exit 1))
+    grep -q '\.symtab' /tmp/sections && \
+    (grep -q '\.debug_info' /tmp/sections || grep -q '\.zdebug_info' /tmp/sections) || \
+    (echo "ERROR: Required symbol sections (.symtab AND .debug_info/.zdebug_info) missing in full build!" && exit 1)
 
 # Stage: stripped build
 FROM --platform=linux/amd64 golang:1.22 AS build-stripped
@@ -65,3 +71,4 @@ FROM --platform=linux/amd64 gcr.io/distroless/static-debian12:nonroot AS strippe
 COPY --chown=nonroot:nonroot --from=certs /certs /certs
 COPY --chown=nonroot:nonroot --from=build-stripped /app /app
 ENTRYPOINT ["/app"]
+
