@@ -1,5 +1,5 @@
 image:
-  repository: myrepo/tls-demo
+  repository: ghcr.io/taha2samy-3/demo/tls-demo
   variant: ""
   pullPolicy: Always
 

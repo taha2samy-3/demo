@@ -1,4 +1,4 @@
-REPO ?= myrepo/tls-demo
+REPO ?= ghcr.io/taha2samy-3/demo/tls-demo
 NAMESPACE ?= tls-demo
 
 .PHONY: build-full build-stripped push install-full install-stripped use-full use-stripped uninstall template-full template-stripped
