@@ -20,19 +20,13 @@ sleep 3
 
 echo ""
 echo "=========================================================="
-echo "  Pixie Mock Container Started!"
+echo "  Pixie Collector Container Started!"
 echo "  Dashboard: http://localhost:5000"
 echo "  OTLP gRPC Receiver: localhost:4317"
 echo "=========================================================="
 echo ""
 
-if [ "${ENABLE_MOCK_VIZIER}" = "true" ] || [ "${ENABLE_MOCK_VIZIER}" = "1" ]; then
-    echo "=== [MODE: Mock Vizier] Starting OTLP Log Generator ==="
-    python3 test_client/mock_vizier.py &
-    MOCK_PID=$!
-    wait -n $RECEIVER_PID $WEB_PID $MOCK_PID
-else
-    echo "=== [MODE: Telemetry Receiver] Listening for real Pixie OTLP exports on 0.0.0.0:4317 ==="
-    wait -n $RECEIVER_PID $WEB_PID
-fi
+echo "=== Listening for OTLP exports on 0.0.0.0:4317 ==="
+wait -n $RECEIVER_PID $WEB_PID
+
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Ensure script runs from inside pixie_mock directory
+# Ensure script runs from inside pixie_collector directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 chmod +x "$0"
@@ -22,9 +22,21 @@ if [ "$1" == "--docker" ]; then
     cp en_spacy_pii_fast.whl en_spacy_pii_fast-1.0.0-py3-none-any.whl 2>/dev/null || true
     cp en_spacy_pii_distilbert.whl en_spacy_pii_distilbert-1.0.0-py3-none-any.whl 2>/dev/null || true
 
-    echo "=== [2/2] Building and Running Docker Container ==="
-    docker build -t pixie-mock:latest .
-    docker run --rm -p 5000:5000 -p 4317:4317 -e ENABLE_MOCK_VIZIER=true --name pixie-mock-container pixie-mock:latest
+    echo "=== [2/2] Building and Running Pixie Collector Container ==="
+    docker build -t pixie-collector:latest .
+    
+    echo ""
+    echo "========================================================================"
+    echo "  Pixie Collector Dashboard running at: http://localhost:5000"
+    echo "  OTLP gRPC Receiver running at:        localhost:4317"
+    echo "========================================================================"
+    echo "To send test telemetry against this running collector, use a separate terminal:"
+    echo "  - Python OTLP Logs:        python3 test_client/mock_vizier.py"
+    echo "  - Go OTLP Trace Spans:     cd seed_go && go run main.go"
+    echo "========================================================================"
+    echo ""
+
+    docker run --rm -p 5000:5000 -p 4317:4317 --name pixie-collector-container pixie-collector:latest
     exit 0
 fi
 
@@ -59,7 +71,7 @@ echo "=== [4/5] Installing Both Local SpaCy PII Models ==="
 pip install --no-deps en_spacy_pii_fast-1.0.0-py3-none-any.whl
 pip install --no-deps en_spacy_pii_distilbert-1.0.0-py3-none-any.whl
 
-echo "=== [5/5] Starting gRPC OTLP Receiver, Flask Web App & Mock Vizier ==="
+echo "=== [5/5] Starting gRPC OTLP Receiver & Flask Web App ==="
 
 cleanup() {
     echo ""
@@ -82,11 +94,15 @@ echo "Started Flask Web App (PID: $WEB_PID)"
 sleep 3
 
 echo ""
-echo "=========================================================="
-echo "  Pixie Mock Dashboard running at: http://localhost:5000"
-echo "  OTLP gRPC Receiver running at: localhost:4317"
-echo "=========================================================="
+echo "========================================================================"
+echo "  Pixie Collector Dashboard running at: http://localhost:5000"
+echo "  OTLP gRPC Receiver running at:        localhost:4317"
+echo "========================================================================"
+echo "To send test telemetry against this running collector, use a separate terminal:"
+echo "  - Python OTLP Logs:        python3 test_client/mock_vizier.py"
+echo "  - Go OTLP Trace Spans:     cd seed_go && go run main.go"
+echo "========================================================================"
 echo ""
 
-echo "=== Running Mock Vizier (OTLP Log Sender) ==="
-PYTHONPATH=. python3 test_client/mock_vizier.py
+wait $RECEIVER_PID $WEB_PID
+
