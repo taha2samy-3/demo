@@ -39,6 +39,26 @@ pools:
   fake_ssns: ["987-65-4320", "923-11-8847", "666-12-4455", "945-77-2201"]
   order_ids: ["ORD-88213", "ORD-90441", "ORD-77120", "ORD-65502", "ORD-83390"]
   ticket_ids: ["TCK-4471", "TCK-5820", "TCK-3390", "TCK-6614"]
+  bank_names: ["Nile Trust Bank", "Meridian Federal", "Harborline Bank",
+    "Cedar National", "Union Gateway Bank", "Pinegrove Credit Union"]
+  # obviously non-issuing "XX"/"DEMO" prefix — never a real country/bank code
+  fake_ibans: ["XX00 DEMO 0000 1234 5678 90", "XX00 DEMO 0000 9876 5432 10",
+    "XX00 DEMO 0000 1111 2222 33", "XX00 DEMO 0000 4455 6677 88"]
+  device_types: ["iPhone 15", "Samsung Galaxy S24", "iPad Air",
+    "Windows Laptop", "MacBook Pro", "Android Tablet"]
+  # RFC 5737 documentation-reserved ranges — guaranteed never real/routable
+  fake_ips: ["203.0.113.42", "198.51.100.17", "192.0.2.88", "203.0.113.9",
+    "198.51.100.201"]
+  employee_ids: ["EMP-10234", "EMP-10877", "EMP-11402", "EMP-10659"]
+  student_ids: ["STU-88214", "STU-90112", "STU-77455"]
+  schools: ["Nile International School", "Horizon Academy",
+    "Cedarbrook College", "Riverside University"]
+  policy_numbers: ["POL-556213", "POL-778904", "POL-334410"]
+  loan_amounts: ["$5,000", "$12,500", "$25,000", "$8,750", "$40,000"]
+  appointment_types: ["Dental Cleaning", "General Checkup", "Eye Exam",
+    "Physical Therapy", "Vaccination"]
+  subscription_plans: ["Basic Monthly", "Pro Annual", "Team Plan",
+    "Enterprise Tier"]
 
 templates:
   - kind: "health_check"
@@ -106,3 +126,63 @@ templates:
       {"id":"{{.ID}}","kind":"job_application","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","phone":"{{.Phone}}","applying_for":"{{.JobTitle}}","company":"{{.Company}}"}
     response: |
       {"status":"ok","msg":"Application received for {{.JobTitle}} at {{.Company}}"}
+
+  - kind: "newsletter_signup"
+    request: |
+      {"id":"{{.ID}}","kind":"newsletter_signup","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}"}
+    response: |
+      {"status":"ok","msg":"Thanks for subscribing, {{.FirstName}}! Confirmation sent to {{.Email}}."}
+
+  - kind: "password_reset"
+    request: |
+      {"id":"{{.ID}}","kind":"password_reset","email":"{{.Email}}","device":"{{.DeviceType}}","ip":"{{.IP}}"}
+    response: |
+      {"status":"ok","msg":"Password reset link sent to {{.Email}}"}
+
+  - kind: "insurance_claim"
+    request: |
+      {"id":"{{.ID}}","kind":"insurance_claim","name":"{{.FirstName}} {{.LastName}}","policy_number":"{{.PolicyNumber}}","diagnosis":"{{.Diagnosis}}"}
+    response: |
+      {"status":"ok","msg":"Claim received","claim_reference":"CLM-{{.ID}}"}
+
+  - kind: "loan_application"
+    request: |
+      {"id":"{{.ID}}","kind":"loan_application","name":"{{.FirstName}} {{.LastName}}","employer":"{{.Company}}","loan_amount":"{{.LoanAmount}}","bank_name":"{{.BankName}}","iban":"{{.IBAN}}"}
+    response: |
+      {"status":"ok","msg":"Application under review","application_id":"LN-{{.ID}}"}
+
+  - kind: "appointment_booking"
+    request: |
+      {"id":"{{.ID}}","kind":"appointment_booking","name":"{{.FirstName}} {{.LastName}}","phone":"{{.Phone}}","appointment_type":"{{.AppointmentType}}","city":"{{.City}}","student_id":"{{.StudentID}}","school":"{{.School}}"}
+    response: |
+      {"status":"ok","msg":"Appointment confirmed for {{.FirstName}} at {{.City}}"}
+
+  - kind: "feedback_survey"
+    request: |
+      {"id":"{{.ID}}","kind":"feedback_survey","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","product":"{{.Product}}","comment":"Really happy with the {{.Product}}, would recommend it."}
+    response: |
+      {"status":"ok","msg":"Thanks for the feedback, {{.FirstName}}!"}
+
+  - kind: "refund_request"
+    request: |
+      {"id":"{{.ID}}","kind":"refund_request","name":"{{.FirstName}} {{.LastName}}","order_id":"{{.OrderID}}","card_number":"{{.CardNumber}}"}
+    response: |
+      {"status":"ok","msg":"Refund initiated for order {{.OrderID}}"}
+
+  - kind: "login_alert"
+    request: |
+      {"id":"{{.ID}}","kind":"login_alert","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","ip":"{{.IP}}","device":"{{.DeviceType}}"}
+    response: |
+      {"status":"ok","msg":"New sign-in detected for {{.Email}} from {{.DeviceType}}. If this wasn't you, secure your account."}
+
+  - kind: "employee_onboarding"
+    request: |
+      {"id":"{{.ID}}","kind":"employee_onboarding","name":"{{.FirstName}} {{.LastName}}","employee_id":"{{.EmployeeID}}","company":"{{.Company}}","job_title":"{{.JobTitle}}"}
+    response: |
+      {"status":"ok","msg":"Welcome to {{.Company}}, {{.FirstName}}! Your employee ID is {{.EmployeeID}}."}
+
+  - kind: "subscription_change"
+    request: |
+      {"id":"{{.ID}}","kind":"subscription_change","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","subscription_plan":"{{.SubscriptionPlan}}"}
+    response: |
+      {"status":"ok","msg":"Your plan has been changed to {{.SubscriptionPlan}}"}

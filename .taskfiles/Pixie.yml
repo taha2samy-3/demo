@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  deploy:
+    desc: 'Deploy Pixie onto the current KUBECONFIG cluster'
+    cmds:
+      - px deploy
+
+  status:
+    desc: 'Check the status of the Pixie deployment'
+    cmds:
+      - px status
+
+  undeploy:
+    desc: 'Remove Pixie from the current KUBECONFIG cluster'
+    cmds:
+      - px undeploy

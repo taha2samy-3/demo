@@ -1,0 +1,63 @@
+version: '3'
+
+vars:
+  CHART_DIR: './tls-demo/chart/tls-demo'
+  NS_FULL: 'tls-demo-full'
+  NS_STRIPPED: 'tls-demo-stripped'
+  PIXIE_COLLECTOR_CHART_DIR: './pixie_collector/chart/pixie-collector'
+  PIXIE_COLLECTOR_NS: 'pixie-collector'
+
+tasks:
+  install-full:
+    cmds:
+      - 'helm upgrade --install tls-demo-full {{.CHART_DIR}} -n {{.NS_FULL}} --create-namespace -f {{.CHART_DIR}}/values.yaml -f {{.CHART_DIR}}/values-full.yaml'
+
+  install-stripped:
+    cmds:
+      - 'helm upgrade --install tls-demo-stripped {{.CHART_DIR}} -n {{.NS_STRIPPED}} --create-namespace -f {{.CHART_DIR}}/values.yaml -f {{.CHART_DIR}}/values-stripped.yaml'
+
+  install-pixie-collector:
+    cmds:
+      - 'helm upgrade --install pixie-collector {{.PIXIE_COLLECTOR_CHART_DIR}} -n {{.PIXIE_COLLECTOR_NS}} --create-namespace'
+
+  install-all:
+    deps: [install-full, install-stripped, install-pixie-collector]
+
+  status:
+    cmds:
+      - 'kubectl get pods -n {{.NS_FULL}} -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image"'
+      - 'kubectl get pods -n {{.NS_STRIPPED}} -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image"'
+
+  status-pixie-collector:
+    cmds:
+      - 'kubectl get pods -n {{.PIXIE_COLLECTOR_NS}} -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[*].image"'
+
+  logs-full:
+    cmds:
+      - 'kubectl logs -n {{.NS_FULL}} -l app.kubernetes.io/part-of=tls-demo -f'
+
+  logs-stripped:
+    cmds:
+      - 'kubectl logs -n {{.NS_STRIPPED}} -l app.kubernetes.io/part-of=tls-demo -f'
+
+  logs-pixie-collector:
+    cmds:
+      - 'kubectl logs -n {{.PIXIE_COLLECTOR_NS}} -l app.kubernetes.io/part-of=pixie-collector -f'
+
+  uninstall-full:
+    cmds:
+      - 'helm uninstall tls-demo-full -n {{.NS_FULL}} || true'
+      - 'kubectl delete namespace {{.NS_FULL}} --ignore-not-found=true'
+
+  uninstall-stripped:
+    cmds:
+      - 'helm uninstall tls-demo-stripped -n {{.NS_STRIPPED}} || true'
+      - 'kubectl delete namespace {{.NS_STRIPPED}} --ignore-not-found=true'
+
+  uninstall-pixie-collector:
+    cmds:
+      - 'helm uninstall pixie-collector -n {{.PIXIE_COLLECTOR_NS}} || true'
+      - 'kubectl delete namespace {{.PIXIE_COLLECTOR_NS}} --ignore-not-found=true'
+
+  uninstall-all:
+    deps: [uninstall-full, uninstall-stripped, uninstall-pixie-collector]

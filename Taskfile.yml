@@ -1,0 +1,24 @@
+version: '3'
+
+dotenv: ['.env']
+
+env:
+  KUBECONFIG: '{{.KUBECONFIG | default "./kubeconfig.yaml"}}'
+
+includes:
+  infra: ./.taskfiles/Infra.yml
+  pixie: ./.taskfiles/Pixie.yml
+  helm: ./.taskfiles/Helm.yml
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  deploy-all:
+    desc: 'Bring up infra, then deploy Pixie, then install all Helm releases (sequential — infra must be ready first)'
+    cmds:
+      - task: infra:up
+      - task: pixie:deploy
+      - task: helm:install-all

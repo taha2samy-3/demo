@@ -1,0 +1,26 @@
+version: '3'
+
+tasks:
+  preview:
+    desc: 'Preview the Pulumi EKS stack changes'
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pulumi preview
+
+  up:
+    desc: 'Provision/update the EKS cluster (prompts for confirmation, as Pulumi does by default)'
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pulumi up
+
+  destroy:
+    desc: 'Destroy the EKS cluster and all Pulumi-managed infra (prompts for confirmation)'
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pulumi destroy
+
+  kubeconfig:
+    desc: 'Re-sync ./kubeconfig.yaml from the current Pulumi stack output, without a full up'
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - pulumi stack output kubeconfig --show-secrets > kubeconfig.yaml
