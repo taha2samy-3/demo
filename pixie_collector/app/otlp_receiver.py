@@ -106,7 +106,6 @@ def process_record(body_str: str, resource_attrs: Dict[str, str] = None, source_
         })
 
     entry = {
-        "id": len(state.get_logs()) + 1,
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "log_body": body_str,
         "has_pii": len(entities) > 0,

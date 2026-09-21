@@ -17,6 +17,7 @@ class AppState:
         self._lock = threading.Lock()
         self._logs: List[Dict[str, Any]] = []
         self._current_model_name: str = "fast"  # "fast" or "distilbert"
+        self._next_id: int = 1
 
     @property
     def current_model_name(self) -> str:
@@ -32,12 +33,15 @@ class AppState:
             else:
                 logger.warning(f"Invalid model name requested: '{name}'")
 
-    def add_log(self, entry: Dict[str, Any]):
+    def add_log(self, entry: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:
+            entry["id"] = self._next_id
+            self._next_id += 1
             self._logs.append(entry)
             if len(self._logs) > 500:
                 self._logs = self._logs[-500:]
             self._save_to_disk(entry)
+            return entry
 
     def get_logs(self) -> List[Dict[str, Any]]:
         with self._lock:
