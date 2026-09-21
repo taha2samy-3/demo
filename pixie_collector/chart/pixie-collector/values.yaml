@@ -10,23 +10,29 @@ ports:
   http: 5000
 
 resources:
-  # spaCy + the DistilBERT transformer pipeline are heavier than a typical
-  # small Python service, and were until recently loaded TWICE per pod
-  # (otlp_receiver.py's own process, plus again in web_app.py via a
-  # module-level import). That's fixed by the lazy-loading change — once
-  # confirmed live, these can likely come down; leave as-is until verified.
+  # CONFIRMED OOMKilled (Exit Code 137) against the previous 3Gi limit —
+  # `kubectl describe pod` showed Last State: Terminated, Reason: OOMKilled.
+  # That was hit under a startup race (web_app.py's port-check ran before
+  # otlp_receiver.py finished binding 4317, so both processes loaded both
+  # spaCy models — 2 models x 2 processes). Even once that race is fixed
+  # (models load exactly once, in otlp_receiver.py's process only), the
+  # DistilBERT transformer pipeline alone pulls in a real PyTorch runtime +
+  # model weights, so this is set well above the single-load footprint on
+  # purpose, not tuned to the bare minimum.
+  # Re-check with `kubectl top pod -n pixie-collector` once the race-
+  # condition fix is deployed before ever lowering this — don't guess.
   requests:
-    memory: "1.5Gi"
+    memory: "2Gi"
     cpu: "500m"
   limits:
-    memory: "3Gi"
+    memory: "5Gi"
     cpu: "1500m"
 
 service:
   type: ClusterIP
 
-# Model loading still takes real time even with the double-load fix (the
-# DistilBERT pipeline alone isn't instant). Generous on purpose.
+# Startup is slow for the same double-load reason above. Generous on
+# purpose — tune down once the duplicate model loading is fixed.
 startupProbe:
   failureThreshold: 40
   periodSeconds: 10 # up to ~6.5 minutes to become ready

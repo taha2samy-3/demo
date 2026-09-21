@@ -144,7 +144,7 @@ managed_node_group = aws.eks.NodeGroup("ebpf-node-group",
         min_size=2,
         max_size=3,
     ),
-    instance_types=["t3.large"],
+    instance_types=["m7a.xlarge"],
     ami_type="AL2023_x86_64_STANDARD",
 )
 
