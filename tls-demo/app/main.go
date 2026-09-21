@@ -17,27 +17,195 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
-var wordList = []string{
-	"alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
-	"golf", "hotel", "india", "juliet", "kilo", "lima",
-	"mike", "november", "oscar", "papa", "quebec", "romeo",
-	"sierra", "tango", "uniform", "victor", "whiskey", "xray",
-	"yankee", "zulu", "ebpf", "kernel", "packet", "stream",
+// PayloadGenerator builds one realistic (request, response) pair for a given
+// message id. Adding traffic variety is a matter of writing one of these and
+// appending it to payloadGenerators below — nothing else needs to change.
+type PayloadGenerator func(id string) (reqBody any, respBody any)
+
+// genericAck is the flat, no-information response reused by generators for
+// which a real service would plausibly just acknowledge the request.
+var genericAck = map[string]string{"status": "ok", "msg": "received"}
+
+// newReqBody stamps the required "id" and a "kind" (used by the /ingest
+// handler to find the matching generator again) onto a generator's own
+// fields.
+func newReqBody(id, kind string, fields map[string]any) map[string]any {
+	body := map[string]any{"id": id, "kind": kind}
+	for k, v := range fields {
+		body[k] = v
+	}
+	return body
 }
 
-type Payload struct {
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-	From      string `json:"from"`
-	Marker    string `json:"marker"`
-	Words     string `json:"words"`
-	Padding   string `json:"padding"`
+// --- Clean / benign generators ---
+
+func genHealthCheck(id string) (any, any) {
+	req := newReqBody(id, "health_check", map[string]any{
+		"service": "frontend",
+	})
+	return req, genericAck
+}
+
+func genMetricsReport(id string) (any, any) {
+	req := newReqBody(id, "metrics_report", map[string]any{
+		"service": "checkoutservice",
+	})
+	resp := map[string]any{
+		"cpu_utilization":    14.2,
+		"memory_mb":          512,
+		"active_connections": 89,
+	}
+	return req, resp
+}
+
+func genProductSearch(id string) (any, any) {
+	req := newReqBody(id, "product_search", map[string]any{
+		"query":     "wireless noise canceling headphones",
+		"category":  "electronics",
+		"max_price": 200,
+	})
+	resp := map[string]any{
+		"items_found": 14,
+		"page":        1,
+		"total_pages": 2,
+	}
+	return req, resp
+}
+
+func genCartUpdate(id string) (any, any) {
+	req := newReqBody(id, "cart_update", map[string]any{
+		"item_id":  "item_9941",
+		"quantity": 2,
+		"currency": "USD",
+	})
+	return req, genericAck
+}
+
+// --- PII-rich generators, one distinct category each ---
+
+func genUserRegistration(id string) (any, any) {
+	req := newReqBody(id, "user_registration", map[string]any{
+		"username":  "johndoe",
+		"email":     "john.doe@acme-corp.com",
+		"full_name": "John Doe",
+		"phone":     "+1-555-0199",
+	})
+	resp := map[string]any{
+		"status":  "created",
+		"user_id": "usr_99812",
+	}
+	return req, resp
+}
+
+func genContactUpdate(id string) (any, any) {
+	req := newReqBody(id, "contact_update", map[string]any{
+		"contact_person": "Robert Johnson",
+		"company":        "Microsoft",
+		"email":          "rjohnson@microsoft.com",
+		"phone":          "+44 20 7946 0912",
+	})
+	resp := map[string]any{
+		"updated":   true,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	return req, resp
+}
+
+func genCheckoutPayment(id string) (any, any) {
+	req := newReqBody(id, "checkout_payment", map[string]any{
+		"customer_name":   "Sarah Connor",
+		"card_number":     "4532-1189-9021-4412",
+		"billing_address": "742 Evergreen Terrace, Springfield, OR 97477",
+		"amount_usd":      149.99,
+	})
+	resp := map[string]any{
+		"transaction_id": "tx_" + id,
+		"status":         "approved",
+	}
+	return req, resp
+}
+
+func genIdentityVerify(id string) (any, any) {
+	req := newReqBody(id, "identity_verify", map[string]any{
+		"applicant_name": "Alexander Hamilton",
+		"ssn":            "123-45-6789",
+		"tax_id":         "987-65-4321",
+		"address":        "1600 Pennsylvania Ave NW, Washington, DC",
+	})
+	resp := map[string]any{
+		"verification_status": "verified",
+		"credit_score":        790,
+	}
+	return req, resp
+}
+
+func genMedicalRecord(id string) (any, any) {
+	// PII lands in the response here (a lookup by an already-known patient
+	// id), which is itself a realistic and usefully different shape.
+	req := newReqBody(id, "medical_record", map[string]any{
+		"patient_id": "p_4412",
+		"doctor_id":  "doc_12",
+	})
+	resp := map[string]any{
+		"patient_name": "Emily Davis",
+		"hospital":     "Boston General Hospital",
+		"diagnosis":    "Acute Bronchitis",
+		"note":         "Prescribed Amoxicillin 500mg, review in 7 days",
+	}
+	return req, resp
+}
+
+func genSupportTicket(id string) (any, any) {
+	req := newReqBody(id, "support_ticket", map[string]any{
+		"submitted_by": "Michael Brown",
+		"company":      "Google",
+		"phone":        "555-867-5309",
+		"city":         "San Francisco",
+		"issue":        "Billing discrepancy on invoice #1002",
+	})
+	resp := map[string]any{
+		"ticket_id":      "TICK-4419",
+		"assigned_group": "support-tier2",
+	}
+	return req, resp
+}
+
+// payloadGenerators is the registry generatePayload() draws from. Append a
+// new gen* function here to add more traffic variety.
+var payloadGenerators = []PayloadGenerator{
+	genHealthCheck,
+	genMetricsReport,
+	genProductSearch,
+	genCartUpdate,
+	genUserRegistration,
+	genContactUpdate,
+	genCheckoutPayment,
+	genIdentityVerify,
+	genMedicalRecord,
+	genSupportTicket,
+}
+
+// payloadGeneratorsByKind lets the /ingest handler regenerate a
+// shape-appropriate response for a request without needing any state passed
+// over the wire beyond the "kind" the generator stamped into the request.
+var payloadGeneratorsByKind = buildPayloadGeneratorsByKind()
+
+func buildPayloadGeneratorsByKind() map[string]PayloadGenerator {
+	byKind := make(map[string]PayloadGenerator, len(payloadGenerators))
+	for _, gen := range payloadGenerators {
+		reqBody, _ := gen("lookup-probe")
+		if m, ok := reqBody.(map[string]any); ok {
+			if kind, ok := m["kind"].(string); ok {
+				byKind[kind] = gen
+			}
+		}
+	}
+	return byKind
 }
 
 func main() {
@@ -124,9 +292,10 @@ func main() {
 			peerCN = r.TLS.PeerCertificates[0].Subject.CommonName
 		}
 
-		// parse partial id for logging only
+		// parse partial id/kind for logging and to shape the response
 		var reqData struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
+			Kind string `json:"kind"`
 		}
 		if err := json.Unmarshal(body, &reqData); err != nil {
 			logger.Warn("invalid JSON payload received", "peer_cn", peerCN, "error", err)
@@ -134,8 +303,13 @@ func main() {
 			return
 		}
 
-		respData := map[string]string{"status": "ok", "msg": "received"}
-		respBytes, _ := json.Marshal(respData)
+		// Regenerate the matching generator's response shape rather than
+		// trying to pass state across the network.
+		var respBody any = genericAck
+		if gen, ok := payloadGeneratorsByKind[reqData.Kind]; ok {
+			_, respBody = gen(reqData.ID)
+		}
+		respBytes, _ := json.Marshal(respBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(respBytes)
@@ -292,40 +466,15 @@ func sendPayload(client *http.Client, url string, from string, logger *slog.Logg
 }
 
 func generatePayload(from string) ([]byte, string) {
-	// Random words from wordList
-	numWordsBig, _ := rand.Int(rand.Reader, big.NewInt(10))
-	numWords := 5 + int(numWordsBig.Int64())
-	words := make([]string, numWords)
-	for i := 0; i < numWords; i++ {
-		idxBig, _ := rand.Int(rand.Reader, big.NewInt(int64(len(wordList))))
-		words[i] = wordList[idxBig.Int64()]
-	}
-	wordsStr := strings.Join(words, " ")
-
-	// Generate padding to keep total payload size between ~200 B and 2 KB
-	// Raw padding size between 50 and 800 bytes -> hex encoded length between 100 and 1600 bytes
-	padRawLenBig, _ := rand.Int(rand.Reader, big.NewInt(750))
-	padRawLen := 50 + padRawLenBig.Int64()
-	pad := make([]byte, padRawLen)
-	rand.Read(pad)
-
-	secret := make([]byte, 16)
-	rand.Read(secret)
-	secretHex := hex.EncodeToString(secret)
+	idxBig, _ := rand.Int(rand.Reader, big.NewInt(int64(len(payloadGenerators))))
+	gen := payloadGenerators[idxBig.Int64()]
 
 	idBytes := make([]byte, 8)
 	rand.Read(idBytes)
 	id := hex.EncodeToString(idBytes)
 
-	data := Payload{
-		ID:        id,
-		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		From:      from,
-		Marker:    "DEMO-SECRET-" + secretHex,
-		Words:     wordsStr,
-		Padding:   hex.EncodeToString(pad),
-	}
-	b, _ := json.Marshal(data)
+	reqBody, _ := gen(id)
+	b, _ := json.Marshal(reqBody)
 	return b, id
 }
 
@@ -333,4 +482,3 @@ func randomJitter() time.Duration {
 	n, _ := rand.Int(rand.Reader, big.NewInt(1000))
 	return time.Duration(n.Int64()) * time.Millisecond
 }
-

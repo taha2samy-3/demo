@@ -32,7 +32,7 @@ if [ "$1" == "--docker" ]; then
     echo "========================================================================"
     echo "To send test telemetry against this running collector, use a separate terminal:"
     echo "  - Python OTLP Logs:        python3 test_client/mock_vizier.py"
-    echo "  - Go OTLP Trace Spans:     cd seed_go && go run main.go"
+    echo "  - Real traffic (captured by Pixie eBPF): run tls-demo — see tls-demo/README.md"
     echo "========================================================================"
     echo ""
 
@@ -100,7 +100,7 @@ echo "  OTLP gRPC Receiver running at:        localhost:4317"
 echo "========================================================================"
 echo "To send test telemetry against this running collector, use a separate terminal:"
 echo "  - Python OTLP Logs:        python3 test_client/mock_vizier.py"
-echo "  - Go OTLP Trace Spans:     cd seed_go && go run main.go"
+echo "  - Real traffic (captured by Pixie eBPF): run tls-demo — see tls-demo/README.md"
 echo "========================================================================"
 echo ""
 
