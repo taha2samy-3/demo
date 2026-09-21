@@ -92,9 +92,36 @@ jobs:
         run: |
           docker build -t pixie-collector:test ./pixie_collector
           docker run -d --name test-pixie-collector -p 5000:5000 -p 4317:4317 pixie-collector:test
-          sleep 6
+
+          echo "Waiting for Flask dashboard to become healthy..."
+          success=false
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/api/data > /dev/null; then
+              echo "Flask dashboard is healthy (attempt $i)."
+              success=true
+              break
+            fi
+            echo "Attempt $i/30: not ready yet, retrying in 3s..."
+            sleep 3
+          done
+
+          if [ "$success" != "true" ]; then
+            echo "Flask dashboard did not become healthy in time."
+            docker logs test-pixie-collector
+            docker rm -f test-pixie-collector
+            exit 1
+          fi
+
+          echo "Checking OTLP gRPC receiver is accepting connections on port 4317..."
+          if ! nc -z localhost 4317; then
+            echo "gRPC receiver is not accepting connections on port 4317."
+            docker logs test-pixie-collector
+            docker rm -f test-pixie-collector
+            exit 1
+          fi
+          echo "gRPC receiver is accepting connections."
+
           docker logs test-pixie-collector
-          curl -f http://localhost:5000/api/data || (docker logs test-pixie-collector && exit 1)
           docker rm -f test-pixie-collector
 
       - name: Log in to GitHub Container Registry
@@ -110,7 +137,8 @@ jobs:
         with:
           context: ./pixie_collector
           file: ./pixie_collector/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # amd64 only: spaCy + the transformer pipeline under QEMU arm64 emulation is slow and failure-prone.
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || github.event.inputs.push_image == 'true') }}
           tags: |
             ${{ env.IMAGE_NAME }}/pixie-collector:latest

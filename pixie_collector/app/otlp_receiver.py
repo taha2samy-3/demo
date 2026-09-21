@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 import logging
 import os
+import threading
 from typing import Any, Dict
 
 import grpc
@@ -15,27 +16,41 @@ from app.state import state
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("otlp_receiver")
 
-# Load BOTH Models on Startup
-logger.info("Initializing SpaCy NLP models...")
-
 MODEL_FAST_NAME = "en_spacy_pii_fast"
 MODEL_DISTILBERT_NAME = "en_spacy_pii_distilbert"
 
-try:
-    logger.info(f"Loading Fast model '{MODEL_FAST_NAME}'...")
-    model_fast = spacy.load(MODEL_FAST_NAME)
-    logger.info("Fast model loaded successfully.")
-except Exception as e:
-    logger.warning(f"Could not load '{MODEL_FAST_NAME}': {e}. Using blank English fallback for Fast model.")
-    model_fast = spacy.blank("en")
+model_fast = None
+model_distilbert = None
+_models_lock = threading.Lock()
 
-try:
-    logger.info(f"Loading DistilBERT Transformer model '{MODEL_DISTILBERT_NAME}'...")
-    model_distilbert = spacy.load(MODEL_DISTILBERT_NAME)
-    logger.info("DistilBERT model loaded successfully.")
-except Exception as e:
-    logger.warning(f"Could not load '{MODEL_DISTILBERT_NAME}': {e}. Falling back to Fast model.")
-    model_distilbert = None
+
+def _ensure_models_loaded():
+    """Load both spaCy models once per process. Safe to call repeatedly."""
+    global model_fast, model_distilbert
+    if model_fast is not None:
+        return
+
+    with _models_lock:
+        if model_fast is not None:
+            return
+
+        logger.info("Initializing SpaCy NLP models...")
+
+        try:
+            logger.info(f"Loading Fast model '{MODEL_FAST_NAME}'...")
+            model_fast = spacy.load(MODEL_FAST_NAME)
+            logger.info("Fast model loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Could not load '{MODEL_FAST_NAME}': {e}. Using blank English fallback for Fast model.")
+            model_fast = spacy.blank("en")
+
+        try:
+            logger.info(f"Loading DistilBERT Transformer model '{MODEL_DISTILBERT_NAME}'...")
+            model_distilbert = spacy.load(MODEL_DISTILBERT_NAME)
+            logger.info("DistilBERT model loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Could not load '{MODEL_DISTILBERT_NAME}': {e}. Falling back to Fast model.")
+            model_distilbert = None
 
 
 def _extract_any_value(val) -> str:
@@ -66,6 +81,8 @@ def process_record(body_str: str, resource_attrs: Dict[str, str] = None, source_
     """Process payload body through currently selected NLP model (fast or distilbert)."""
     if not body_str:
         return
+
+    _ensure_models_loaded()
 
     current_model_choice = state.current_model_name
 
@@ -191,6 +208,7 @@ class OTLPTraceServicer(trace_service_pb2_grpc.TraceServiceServicer):
 
 
 def serve_grpc(port: int = 4317):
+    _ensure_models_loaded()
     server = grpc.server(concurrent.futures.ThreadPoolExecutor(max_workers=10))
     logs_service_pb2_grpc.add_LogsServiceServicer_to_server(OTLPLogsServicer(), server)
     trace_service_pb2_grpc.add_TraceServiceServicer_to_server(OTLPTraceServicer(), server)

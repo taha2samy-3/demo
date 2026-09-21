@@ -1,3 +1,3 @@
 """
-Pixie Mock App Package
+Pixie Collector App Package
 """
