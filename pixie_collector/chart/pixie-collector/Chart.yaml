@@ -1,0 +1,8 @@
+apiVersion: v2
+name: pixie-collector
+description: >
+  Helm chart for the Pixie OTLP collector — receives OTLP data
+  (gRPC :4317, Logs + Traces), runs it through a PII-detection model,
+  and serves a live dashboard (HTTP :5000).
+version: 0.1.0
+appVersion: "1.0.0"

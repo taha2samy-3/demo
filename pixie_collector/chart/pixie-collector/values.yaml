@@ -1,0 +1,50 @@
+image:
+  repository: ghcr.io/taha2samy-3/demo/pixie-collector
+  tag: latest
+  pullPolicy: Always
+
+replicaCount: 1
+
+ports:
+  grpc: 4317
+  http: 5000
+
+resources:
+  # spaCy + the DistilBERT transformer pipeline are heavier than a typical
+  # small Python service, and were until recently loaded TWICE per pod
+  # (otlp_receiver.py's own process, plus again in web_app.py via a
+  # module-level import). That's fixed by the lazy-loading change — once
+  # confirmed live, these can likely come down; leave as-is until verified.
+  requests:
+    memory: "1.5Gi"
+    cpu: "500m"
+  limits:
+    memory: "3Gi"
+    cpu: "1500m"
+
+service:
+  type: ClusterIP
+
+# Model loading still takes real time even with the double-load fix (the
+# DistilBERT pipeline alone isn't instant). Generous on purpose.
+startupProbe:
+  failureThreshold: 40
+  periodSeconds: 10 # up to ~6.5 minutes to become ready
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# readOnlyRootFilesystem is intentionally left off: app/state.py writes
+# logs_data.json next to the source files inside the image
+# (os.path.dirname(__file__)), so a read-only root FS breaks persistence as
+# the code stands today. Tighten this once DATA_FILE is made configurable
+# and pointed at a mounted volume.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
