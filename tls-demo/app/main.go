@@ -17,195 +17,176 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"text/template"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// PayloadGenerator builds one realistic (request, response) pair for a given
-// message id. Adding traffic variety is a matter of writing one of these and
-// appending it to payloadGenerators below — nothing else needs to change.
-type PayloadGenerator func(id string) (reqBody any, respBody any)
+// logger is set once in main() and read by code that runs outside main's
+// own scope (the seed loader, and generatePayload/renderResponse which run
+// on the client/server goroutines).
+var logger *slog.Logger
 
-// genericAck is the flat, no-information response reused by generators for
-// which a real service would plausibly just acknowledge the request.
-var genericAck = map[string]string{"status": "ok", "msg": "received"}
+// genericAck is the flat, no-information response used when a request
+// carries no recognized "kind" (or seeds.yaml has no matching template).
+var genericAck = []byte(`{"status":"ok","msg":"received"}`)
 
-// newReqBody stamps the required "id" and a "kind" (used by the /ingest
-// handler to find the matching generator again) onto a generator's own
-// fields.
-func newReqBody(id, kind string, fields map[string]any) map[string]any {
-	body := map[string]any{"id": id, "kind": kind}
-	for k, v := range fields {
-		body[k] = v
+// SeedTemplate is one (request, response) shape as declared in seeds.yaml.
+// Both fields are Go text/template source rendered against a context built
+// by buildContext().
+type SeedTemplate struct {
+	Kind     string `yaml:"kind"`
+	Request  string `yaml:"request"`
+	Response string `yaml:"response"`
+}
+
+// Seeds is the full shape of seeds.yaml: a set of value pools that
+// buildContext() draws random entries from, plus the request/response
+// templates that reference them.
+type Seeds struct {
+	Pools     map[string][]string `yaml:"pools"`
+	Templates []SeedTemplate      `yaml:"templates"`
+}
+
+// parsedTemplate holds a SeedTemplate's request/response bodies pre-parsed
+// as text/template.Template so generatePayload() and renderResponse() only
+// need to Execute(), not re-parse, on every call.
+type parsedTemplate struct {
+	kind     string
+	request  *template.Template
+	response *template.Template
+}
+
+var (
+	seeds                 Seeds
+	parsedTemplates       []parsedTemplate
+	parsedTemplatesByKind map[string]*parsedTemplate
+)
+
+// loadSeeds reads and parses seeds.yaml. Growing traffic variety later is a
+// pure data edit to that file (append a pools entry or a templates block) —
+// this loader and generatePayload()/renderResponse() never need to change.
+// Any problem with the file (missing, bad YAML, bad template syntax) is
+// treated as a fatal startup error: the seeds ship in the image, so a
+// broken file means a broken build, not a runtime condition to tolerate.
+func loadSeeds(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logger.Error("failed to read seeds file", "path", path, "error", err)
+		os.Exit(1)
 	}
-	return body
-}
 
-// --- Clean / benign generators ---
-
-func genHealthCheck(id string) (any, any) {
-	req := newReqBody(id, "health_check", map[string]any{
-		"service": "frontend",
-	})
-	return req, genericAck
-}
-
-func genMetricsReport(id string) (any, any) {
-	req := newReqBody(id, "metrics_report", map[string]any{
-		"service": "checkoutservice",
-	})
-	resp := map[string]any{
-		"cpu_utilization":    14.2,
-		"memory_mb":          512,
-		"active_connections": 89,
+	if err := yaml.Unmarshal(data, &seeds); err != nil {
+		logger.Error("failed to parse seeds YAML", "path", path, "error", err)
+		os.Exit(1)
 	}
-	return req, resp
-}
-
-func genProductSearch(id string) (any, any) {
-	req := newReqBody(id, "product_search", map[string]any{
-		"query":     "wireless noise canceling headphones",
-		"category":  "electronics",
-		"max_price": 200,
-	})
-	resp := map[string]any{
-		"items_found": 14,
-		"page":        1,
-		"total_pages": 2,
+	if len(seeds.Templates) == 0 {
+		logger.Error("seeds file has no templates", "path", path)
+		os.Exit(1)
 	}
-	return req, resp
-}
 
-func genCartUpdate(id string) (any, any) {
-	req := newReqBody(id, "cart_update", map[string]any{
-		"item_id":  "item_9941",
-		"quantity": 2,
-		"currency": "USD",
-	})
-	return req, genericAck
-}
-
-// --- PII-rich generators, one distinct category each ---
-
-func genUserRegistration(id string) (any, any) {
-	req := newReqBody(id, "user_registration", map[string]any{
-		"username":  "johndoe",
-		"email":     "john.doe@acme-corp.com",
-		"full_name": "John Doe",
-		"phone":     "+1-555-0199",
-	})
-	resp := map[string]any{
-		"status":  "created",
-		"user_id": "usr_99812",
-	}
-	return req, resp
-}
-
-func genContactUpdate(id string) (any, any) {
-	req := newReqBody(id, "contact_update", map[string]any{
-		"contact_person": "Robert Johnson",
-		"company":        "Microsoft",
-		"email":          "rjohnson@microsoft.com",
-		"phone":          "+44 20 7946 0912",
-	})
-	resp := map[string]any{
-		"updated":   true,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	return req, resp
-}
-
-func genCheckoutPayment(id string) (any, any) {
-	req := newReqBody(id, "checkout_payment", map[string]any{
-		"customer_name":   "Sarah Connor",
-		"card_number":     "4532-1189-9021-4412",
-		"billing_address": "742 Evergreen Terrace, Springfield, OR 97477",
-		"amount_usd":      149.99,
-	})
-	resp := map[string]any{
-		"transaction_id": "tx_" + id,
-		"status":         "approved",
-	}
-	return req, resp
-}
-
-func genIdentityVerify(id string) (any, any) {
-	req := newReqBody(id, "identity_verify", map[string]any{
-		"applicant_name": "Alexander Hamilton",
-		"ssn":            "123-45-6789",
-		"tax_id":         "987-65-4321",
-		"address":        "1600 Pennsylvania Ave NW, Washington, DC",
-	})
-	resp := map[string]any{
-		"verification_status": "verified",
-		"credit_score":        790,
-	}
-	return req, resp
-}
-
-func genMedicalRecord(id string) (any, any) {
-	// PII lands in the response here (a lookup by an already-known patient
-	// id), which is itself a realistic and usefully different shape.
-	req := newReqBody(id, "medical_record", map[string]any{
-		"patient_id": "p_4412",
-		"doctor_id":  "doc_12",
-	})
-	resp := map[string]any{
-		"patient_name": "Emily Davis",
-		"hospital":     "Boston General Hospital",
-		"diagnosis":    "Acute Bronchitis",
-		"note":         "Prescribed Amoxicillin 500mg, review in 7 days",
-	}
-	return req, resp
-}
-
-func genSupportTicket(id string) (any, any) {
-	req := newReqBody(id, "support_ticket", map[string]any{
-		"submitted_by": "Michael Brown",
-		"company":      "Google",
-		"phone":        "555-867-5309",
-		"city":         "San Francisco",
-		"issue":        "Billing discrepancy on invoice #1002",
-	})
-	resp := map[string]any{
-		"ticket_id":      "TICK-4419",
-		"assigned_group": "support-tier2",
-	}
-	return req, resp
-}
-
-// payloadGenerators is the registry generatePayload() draws from. Append a
-// new gen* function here to add more traffic variety.
-var payloadGenerators = []PayloadGenerator{
-	genHealthCheck,
-	genMetricsReport,
-	genProductSearch,
-	genCartUpdate,
-	genUserRegistration,
-	genContactUpdate,
-	genCheckoutPayment,
-	genIdentityVerify,
-	genMedicalRecord,
-	genSupportTicket,
-}
-
-// payloadGeneratorsByKind lets the /ingest handler regenerate a
-// shape-appropriate response for a request without needing any state passed
-// over the wire beyond the "kind" the generator stamped into the request.
-var payloadGeneratorsByKind = buildPayloadGeneratorsByKind()
-
-func buildPayloadGeneratorsByKind() map[string]PayloadGenerator {
-	byKind := make(map[string]PayloadGenerator, len(payloadGenerators))
-	for _, gen := range payloadGenerators {
-		reqBody, _ := gen("lookup-probe")
-		if m, ok := reqBody.(map[string]any); ok {
-			if kind, ok := m["kind"].(string); ok {
-				byKind[kind] = gen
-			}
+	parsedTemplates = make([]parsedTemplate, 0, len(seeds.Templates))
+	parsedTemplatesByKind = make(map[string]*parsedTemplate, len(seeds.Templates))
+	for _, t := range seeds.Templates {
+		reqTmpl, err := template.New(t.Kind + "_request").Parse(t.Request)
+		if err != nil {
+			logger.Error("failed to parse request template", "kind", t.Kind, "error", err)
+			os.Exit(1)
 		}
+		respTmpl, err := template.New(t.Kind + "_response").Parse(t.Response)
+		if err != nil {
+			logger.Error("failed to parse response template", "kind", t.Kind, "error", err)
+			os.Exit(1)
+		}
+
+		parsedTemplates = append(parsedTemplates, parsedTemplate{
+			kind:     t.Kind,
+			request:  reqTmpl,
+			response: respTmpl,
+		})
+		parsedTemplatesByKind[t.Kind] = &parsedTemplates[len(parsedTemplates)-1]
 	}
-	return byKind
+
+	logger.Info("loaded seed templates", "path", path, "count", len(parsedTemplates))
+}
+
+// randIndex returns a crypto/rand index in [0, n).
+func randIndex(n int) int {
+	idxBig, _ := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	return int(idxBig.Int64())
+}
+
+// pickRandom returns a random element from pool, or "" if it's empty.
+func pickRandom(pool []string) string {
+	if len(pool) == 0 {
+		return ""
+	}
+	return pool[randIndex(len(pool))]
+}
+
+// randomHexID generates a random hex message id, the same way this file
+// always has.
+func randomHexID() string {
+	idBytes := make([]byte, 8)
+	rand.Read(idBytes)
+	return hex.EncodeToString(idBytes)
+}
+
+// buildContext produces a fresh, fully-populated set of random field values.
+// Every field is filled on every call regardless of which template will
+// consume it: it's cheap, and it means any template can reference any field
+// without extra wiring here.
+func buildContext() map[string]string {
+	firstName := pickRandom(seeds.Pools["first_names"])
+	lastName := pickRandom(seeds.Pools["last_names"])
+	domain := pickRandom(seeds.Pools["email_domains"])
+	email := strings.ToLower(firstName+"."+lastName) + "@" + domain
+
+	return map[string]string{
+		"ID":         randomHexID(),
+		"FirstName":  firstName,
+		"LastName":   lastName,
+		"Email":      email,
+		"Phone":      pickRandom(seeds.Pools["phone_numbers"]),
+		"Company":    pickRandom(seeds.Pools["companies"]),
+		"JobTitle":   pickRandom(seeds.Pools["job_titles"]),
+		"City":       pickRandom(seeds.Pools["cities"]),
+		"Street":     pickRandom(seeds.Pools["streets"]),
+		"Diagnosis":  pickRandom(seeds.Pools["diagnoses"]),
+		"Medication": pickRandom(seeds.Pools["medications"]),
+		"Product":    pickRandom(seeds.Pools["products"]),
+		"CardNumber": pickRandom(seeds.Pools["test_card_numbers"]),
+		"SSN":        pickRandom(seeds.Pools["fake_ssns"]),
+		"OrderID":    pickRandom(seeds.Pools["order_ids"]),
+		"TicketID":   pickRandom(seeds.Pools["ticket_ids"]),
+	}
+}
+
+// renderResponse renders the response template for kind against a fresh
+// context (the response doesn't need to echo the client's exact values,
+// just be shape-appropriate). Falls back to genericAck if kind is missing,
+// unrecognized, or fails to render/validate as JSON.
+func renderResponse(kind string) []byte {
+	pt, ok := parsedTemplatesByKind[kind]
+	if !ok {
+		return genericAck
+	}
+
+	var buf bytes.Buffer
+	if err := pt.response.Execute(&buf, buildContext()); err != nil {
+		logger.Warn("failed to render response template, using generic ack", "kind", kind, "error", err)
+		return genericAck
+	}
+	rendered := buf.Bytes()
+	if !json.Valid(rendered) {
+		logger.Warn("rendered response template is not valid JSON, using generic ack", "kind", kind)
+		return genericAck
+	}
+	return rendered
 }
 
 func main() {
@@ -213,7 +194,9 @@ func main() {
 	if svcName == "" {
 		svcName = "service-unknown"
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil)).With("service", svcName)
+	logger = slog.New(slog.NewTextHandler(os.Stdout, nil)).With("service", svcName)
+
+	loadSeeds("seeds.yaml")
 
 	peerAddr := os.Getenv("PEER_ADDR")
 	if peerAddr == "" {
@@ -303,13 +286,9 @@ func main() {
 			return
 		}
 
-		// Regenerate the matching generator's response shape rather than
-		// trying to pass state across the network.
-		var respBody any = genericAck
-		if gen, ok := payloadGeneratorsByKind[reqData.Kind]; ok {
-			_, respBody = gen(reqData.ID)
-		}
-		respBytes, _ := json.Marshal(respBody)
+		// Regenerate a shape-appropriate response from seeds.yaml rather
+		// than trying to pass state across the network.
+		respBytes := renderResponse(reqData.Kind)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(respBytes)
@@ -466,16 +445,28 @@ func sendPayload(client *http.Client, url string, from string, logger *slog.Logg
 }
 
 func generatePayload(from string) ([]byte, string) {
-	idxBig, _ := rand.Int(rand.Reader, big.NewInt(int64(len(payloadGenerators))))
-	gen := payloadGenerators[idxBig.Int64()]
+	const maxAttempts = 20
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		pt := parsedTemplates[randIndex(len(parsedTemplates))]
+		ctx := buildContext()
 
-	idBytes := make([]byte, 8)
-	rand.Read(idBytes)
-	id := hex.EncodeToString(idBytes)
+		var buf bytes.Buffer
+		if err := pt.request.Execute(&buf, ctx); err != nil {
+			logger.Warn("failed to render request template, skipping this attempt", "kind", pt.kind, "error", err)
+			continue
+		}
+		rendered := buf.Bytes()
+		if !json.Valid(rendered) {
+			logger.Warn("rendered request template is not valid JSON, skipping this attempt", "kind", pt.kind)
+			continue
+		}
+		return rendered, ctx["ID"]
+	}
 
-	reqBody, _ := gen(id)
-	b, _ := json.Marshal(reqBody)
-	return b, id
+	logger.Error("no seed template produced valid JSON after repeated attempts; sending fallback payload")
+	id := randomHexID()
+	fallback, _ := json.Marshal(map[string]string{"id": id, "kind": "fallback"})
+	return fallback, id
 }
 
 func randomJitter() time.Duration {

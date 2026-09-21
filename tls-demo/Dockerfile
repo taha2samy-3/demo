@@ -62,13 +62,20 @@ RUN readelf -S /app > /tmp/sections && \
 # Both variants MUST come from this identical build to share the identical CA from the "certs" stage.
 # WARNING: Baking private keys into images is for this demo only. Never do this in production.
 FROM --platform=linux/amd64 gcr.io/distroless/static-debian12:nonroot AS full
+# The nonroot base image defaults WORKDIR to /home/nonroot; pin it to / so
+# the app's relative os.ReadFile("seeds.yaml") finds the file we COPY here,
+# next to the /app binary.
+WORKDIR /
 COPY --chown=nonroot:nonroot --from=certs /certs /certs
 COPY --chown=nonroot:nonroot --from=build-full /app /app
+COPY --chown=nonroot:nonroot --from=build-full /src/seeds.yaml /seeds.yaml
 ENTRYPOINT ["/app"]
 
 # Final Target: stripped
 FROM --platform=linux/amd64 gcr.io/distroless/static-debian12:nonroot AS stripped
+WORKDIR /
 COPY --chown=nonroot:nonroot --from=certs /certs /certs
 COPY --chown=nonroot:nonroot --from=build-stripped /app /app
+COPY --chown=nonroot:nonroot --from=build-stripped /src/seeds.yaml /seeds.yaml
 ENTRYPOINT ["/app"]
 

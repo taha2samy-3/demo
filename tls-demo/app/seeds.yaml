@@ -1,0 +1,108 @@
+pools:
+  first_names: ["Amira", "Karim", "Layla", "Yusuf", "Nadia", "Omar", "Sara",
+    "Hassan", "Dina", "Tarek", "Mona", "Fadi", "Rania", "Sami", "Huda",
+    "Malik", "Yasmin", "Adam", "Reem", "Ziad", "Lina", "Bilal", "Nour",
+    "Khaled", "Salma", "Amir", "Farida", "Wael", "Jana", "Ramy"]
+  last_names: ["Hassan", "Ibrahim", "Mansour", "Farouk", "Saleh", "Aziz",
+    "Rashid", "Nasser", "Khalil", "Mahmoud", "Sabry", "Fahmy", "Gaber",
+    "Younis", "Shafik", "Adel", "Hakim", "Naguib", "Zaki", "Barakat"]
+  email_domains: ["gmail.com", "outlook.com", "yahoo.com", "corp-mail.io",
+    "fastmail.com", "protonmail.com", "acmeglobal.com", "example.org"]
+  companies: ["Acme Global Logistics", "Northwind Retail", "BluePeak Health",
+    "Rivertown Bank", "Cedar & Co Legal", "Quantum Freight", "Solaris Energy",
+    "Harborline Insurance", "Meridian Clinics", "Vertex Manufacturing"]
+  cities: ["Cairo", "Giza", "Alexandria", "Dubai", "Riyadh", "Amman",
+    "Beirut", "Doha", "Casablanca", "Tunis", "Nairobi", "Istanbul"]
+  streets: ["14 Nile Corniche St", "27 Tahrir Square", "9 Zamalek Ave",
+    "142 King Faisal Rd", "58 Al Rashid Blvd", "3 Maadi Gardens St",
+    "76 Heliopolis Lane", "21 Downtown Plaza"]
+  job_titles: ["Software Engineer", "Sales Manager", "Nurse Practitioner",
+    "Financial Analyst", "Operations Lead", "Customer Success Manager",
+    "Warehouse Supervisor", "HR Coordinator"]
+  diagnoses: ["Type 2 Diabetes", "Hypertension", "Seasonal Allergic Rhinitis",
+    "Generalized Anxiety Disorder", "Lower Back Strain", "Migraine",
+    "Mild Asthma", "Iron Deficiency Anemia"]
+  medications: ["Metformin 500mg", "Lisinopril 10mg", "Loratadine 10mg",
+    "Sertraline 50mg", "Ibuprofen 400mg", "Albuterol Inhaler"]
+  products: ["Wireless Noise-Cancelling Headphones", "Stainless Steel Water Bottle",
+    "4K Ultra HD Monitor", "Ergonomic Office Chair", "Mechanical Keyboard",
+    "Smart Fitness Watch", "Portable Espresso Maker"]
+  phone_numbers: ["+1-202-555-0147", "+1-202-555-0192", "+20-100-555-0134",
+    "+971-50-555-0177", "+44-20-7555-0163", "+1-202-555-0110",
+    "+966-50-555-0128", "+20-122-555-0156"]
+  # standard, publicly documented PAYMENT-INDUSTRY TEST card numbers —
+  # intentionally not real cards, safe to use for PII-detector testing
+  test_card_numbers: ["4111111111111111", "5555555555554444",
+    "378282246310005", "6011111111111117"]
+  # SSA-reserved / never-issued SSN ranges (900-999 area, and 666) —
+  # intentionally never a real person's SSN
+  fake_ssns: ["987-65-4320", "923-11-8847", "666-12-4455", "945-77-2201"]
+  order_ids: ["ORD-88213", "ORD-90441", "ORD-77120", "ORD-65502", "ORD-83390"]
+  ticket_ids: ["TCK-4471", "TCK-5820", "TCK-3390", "TCK-6614"]
+
+templates:
+  - kind: "health_check"
+    request: |
+      {"id":"{{.ID}}","kind":"health_check"}
+    response: |
+      {"status":"ok","msg":"healthy","uptime_s":8213}
+
+  - kind: "metrics_report"
+    request: |
+      {"id":"{{.ID}}","kind":"metrics_report","cpu_pct":42,"mem_pct":67,"queue_depth":3}
+    response: |
+      {"status":"ok","msg":"metrics accepted"}
+
+  - kind: "product_search"
+    request: |
+      {"id":"{{.ID}}","kind":"product_search","query":"{{.Product}}"}
+    response: |
+      {"status":"ok","results":["{{.Product}}"],"count":1}
+
+  - kind: "user_registration"
+    request: |
+      {"id":"{{.ID}}","kind":"user_registration","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","phone":"{{.Phone}}"}
+    response: |
+      {"status":"ok","msg":"Welcome {{.FirstName}}, your account {{.Email}} has been created."}
+
+  - kind: "b2b_contact"
+    request: |
+      {"id":"{{.ID}}","kind":"b2b_contact","name":"{{.FirstName}} {{.LastName}}","company":"{{.Company}}","title":"{{.JobTitle}}","email":"{{.Email}}","phone":"{{.Phone}}"}
+    response: |
+      {"status":"ok","msg":"Contact saved for {{.Company}}"}
+
+  - kind: "checkout_payment"
+    request: |
+      {"id":"{{.ID}}","kind":"checkout_payment","name":"{{.FirstName}} {{.LastName}}","card_number":"{{.CardNumber}}","billing_address":"{{.Street}}, {{.City}}","order_id":"{{.OrderID}}"}
+    response: |
+      {"status":"ok","msg":"Payment authorized","order_id":"{{.OrderID}}","confirmation":"CNF-{{.ID}}"}
+
+  - kind: "identity_verification"
+    request: |
+      {"id":"{{.ID}}","kind":"identity_verification","name":"{{.FirstName}} {{.LastName}}","ssn":"{{.SSN}}","address":"{{.Street}}, {{.City}}"}
+    response: |
+      {"status":"ok","msg":"Identity verified for {{.FirstName}} {{.LastName}}"}
+
+  - kind: "medical_record"
+    request: |
+      {"id":"{{.ID}}","kind":"medical_record","patient_name":"{{.FirstName}} {{.LastName}}","diagnosis":"{{.Diagnosis}}","medication":"{{.Medication}}","clinic":"{{.Company}}"}
+    response: |
+      {"status":"ok","msg":"Record filed for patient {{.FirstName}} {{.LastName}}"}
+
+  - kind: "support_ticket"
+    request: |
+      {"id":"{{.ID}}","kind":"support_ticket","ticket_id":"{{.TicketID}}","name":"{{.FirstName}} {{.LastName}}","phone":"{{.Phone}}","city":"{{.City}}","issue":"Cannot access account for order {{.OrderID}}"}
+    response: |
+      {"status":"ok","msg":"Ticket {{.TicketID}} opened for {{.FirstName}}"}
+
+  - kind: "shipping_update"
+    request: |
+      {"id":"{{.ID}}","kind":"shipping_update","order_id":"{{.OrderID}}","recipient":"{{.FirstName}} {{.LastName}}","address":"{{.Street}}, {{.City}}"}
+    response: |
+      {"status":"ok","msg":"Order {{.OrderID}} shipped to {{.City}}"}
+
+  - kind: "job_application"
+    request: |
+      {"id":"{{.ID}}","kind":"job_application","name":"{{.FirstName}} {{.LastName}}","email":"{{.Email}}","phone":"{{.Phone}}","applying_for":"{{.JobTitle}}","company":"{{.Company}}"}
+    response: |
+      {"status":"ok","msg":"Application received for {{.JobTitle}} at {{.Company}}"}
