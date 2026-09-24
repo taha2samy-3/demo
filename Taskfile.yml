@@ -9,6 +9,7 @@ includes:
   infra: ./.taskfiles/Infra.yml
   pixie: ./.taskfiles/Pixie.yml
   helm: ./.taskfiles/Helm.yml
+  seccomp: ./.taskfiles/Seccomp.yml
 
 tasks:
   default:
