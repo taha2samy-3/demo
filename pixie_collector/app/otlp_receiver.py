@@ -9,6 +9,8 @@ from typing import Any, Dict
 import grpc
 from opentelemetry.proto.collector.logs.v1 import logs_service_pb2, logs_service_pb2_grpc
 from opentelemetry.proto.collector.trace.v1 import trace_service_pb2, trace_service_pb2_grpc
+from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider, SpacyNlpEngine
 import spacy
 
 from app.state import state
@@ -19,38 +21,74 @@ logger = logging.getLogger("otlp_receiver")
 MODEL_FAST_NAME = "en_spacy_pii_fast"
 MODEL_DISTILBERT_NAME = "en_spacy_pii_distilbert"
 
-model_fast = None
-model_distilbert = None
+# Recognizer hits below this confidence are dropped (e.g. "Roboto" as PER
+# from a CSS font-family). Not validated against real traffic yet — tune
+# after seeing production output, don't assume this is right.
+PII_SCORE_THRESHOLD = 0.4
+
+analyzer_fast = None
+analyzer_distilbert = None
 _models_lock = threading.Lock()
 
 
+def _build_analyzer(model_name: str) -> AnalyzerEngine:
+    """Build a presidio AnalyzerEngine whose NER component is `model_name`.
+
+    presidio's own regex/checksum recognizers (email, phone, credit card,
+    IBAN, IP, ...) run alongside whatever the spaCy NER model contributes
+    (PER/LOC/ORG/...); analyze() merges both sets of results.
+    """
+    nlp_engine = NlpEngineProvider(
+        nlp_configuration={
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": model_name}],
+        }
+    ).create_engine()
+    return AnalyzerEngine(nlp_engine=nlp_engine)
+
+
+def _build_blank_analyzer(model_name: str) -> AnalyzerEngine:
+    """Fallback analyzer using a blank spaCy pipeline (no NER, no network
+    download) when `model_name` can't be loaded. presidio's regex/checksum
+    recognizers still work; NER-derived labels (PER/LOC/ORG) won't fire.
+    """
+    nlp_engine = SpacyNlpEngine(models=[{"lang_code": "en", "model_name": model_name}])
+    nlp_engine.nlp = {"en": spacy.blank("en")}
+    return AnalyzerEngine(nlp_engine=nlp_engine)
+
+
 def _ensure_models_loaded():
-    """Load both spaCy models once per process. Safe to call repeatedly."""
-    global model_fast, model_distilbert
-    if model_fast is not None:
+    """Build both presidio AnalyzerEngines once per process. Safe to call repeatedly."""
+    global analyzer_fast, analyzer_distilbert
+    if analyzer_fast is not None:
         return
 
     with _models_lock:
-        if model_fast is not None:
+        if analyzer_fast is not None:
             return
 
         logger.info("Initializing SpaCy NLP models...")
 
         try:
             logger.info(f"Loading Fast model '{MODEL_FAST_NAME}'...")
-            model_fast = spacy.load(MODEL_FAST_NAME)
+            analyzer_fast = _build_analyzer(MODEL_FAST_NAME)
             logger.info("Fast model loaded successfully.")
-        except Exception as e:
+        except (Exception, SystemExit) as e:
+            # spaCy's model-download path (triggered when a named model isn't
+            # an installed package) calls sys.exit(1) on failure rather than
+            # raising a normal exception, so SystemExit must be caught here
+            # too or a missing model would kill the whole process instead of
+            # falling back.
             logger.warning(f"Could not load '{MODEL_FAST_NAME}': {e}. Using blank English fallback for Fast model.")
-            model_fast = spacy.blank("en")
+            analyzer_fast = _build_blank_analyzer(MODEL_FAST_NAME)
 
         try:
             logger.info(f"Loading DistilBERT Transformer model '{MODEL_DISTILBERT_NAME}'...")
-            model_distilbert = spacy.load(MODEL_DISTILBERT_NAME)
+            analyzer_distilbert = _build_analyzer(MODEL_DISTILBERT_NAME)
             logger.info("DistilBERT model loaded successfully.")
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             logger.warning(f"Could not load '{MODEL_DISTILBERT_NAME}': {e}. Falling back to Fast model.")
-            model_distilbert = None
+            analyzer_distilbert = None
 
 
 def _extract_any_value(val) -> str:
@@ -86,24 +124,27 @@ def process_record(body_str: str, resource_attrs: Dict[str, str] = None, source_
 
     current_model_choice = state.current_model_name
 
-    # Select active model
-    if current_model_choice == "distilbert" and model_distilbert is not None:
-        active_nlp = model_distilbert
+    # Select active analyzer
+    if current_model_choice == "distilbert" and analyzer_distilbert is not None:
+        active_analyzer = analyzer_distilbert
         active_model_used = "distilbert"
     else:
-        active_nlp = model_fast
+        active_analyzer = analyzer_fast
         active_model_used = "fast"
 
-    # Run Inference
-    doc = active_nlp(body_str)
-    entities = []
-    for ent in doc.ents:
-        entities.append({
-            "text": ent.text,
-            "label": ent.label_,
-            "start": ent.start_char,
-            "end": ent.end_char
-        })
+    # Run Inference — presidio merges its own regex/checksum recognizers
+    # (email, phone, credit card, IBAN, ...) with whatever the spaCy NER
+    # model contributes (PER/LOC/ORG/...).
+    results = active_analyzer.analyze(text=body_str, language="en", score_threshold=PII_SCORE_THRESHOLD)
+    entities = [
+        {
+            "text": body_str[r.start:r.end],
+            "label": r.entity_type,
+            "start": r.start,
+            "end": r.end,
+        }
+        for r in results
+    ]
 
     entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
