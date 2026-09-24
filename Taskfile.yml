@@ -21,6 +21,8 @@ tasks:
     desc: 'Bring up infra, then deploy Pixie, then install all Helm releases (sequential — infra must be ready first)'
     cmds:
       - task: infra:up
+      - task: seccomp:install-operator
+      - 
       - task: pixie:deploy
       - task: helm:install-all
   deploy-pixie:
