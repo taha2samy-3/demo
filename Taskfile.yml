@@ -22,3 +22,7 @@ tasks:
       - task: infra:up
       - task: pixie:deploy
       - task: helm:install-all
+  deploy-pixie:
+    cmds: 
+      - task: pixie:deploy
+      
