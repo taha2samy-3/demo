@@ -32,5 +32,3 @@ tasks:
       - task: seccomp:start-recording
       - task: seccomp:scale-up
 
-  pixie-collector:
-    
