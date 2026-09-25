@@ -43,6 +43,17 @@ class AppState:
             self._save_to_disk(entry)
             return entry
 
+    def clear_logs(self):
+        with self._lock:
+            self._logs = []
+            self._next_id = 1
+            try:
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+            except Exception as e:
+                logger.error(f"Error clearing persisted logs: {e}")
+            logger.info("Cleared all log/span records.")
+
     def get_logs(self) -> List[Dict[str, Any]]:
         with self._lock:
             if self._logs:

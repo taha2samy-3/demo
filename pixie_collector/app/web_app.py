@@ -34,6 +34,15 @@ def get_data():
     })
 
 
+@app.route("/api/clear", methods=["POST"])
+def clear_logs():
+    state.clear_logs()
+    return jsonify({
+        "status": "ok",
+        "message": "All logs and spans cleared"
+    })
+
+
 @app.route("/api/set_model", methods=["POST"])
 def set_model():
     req_data = request.get_json(force=True, silent=True) or {}
