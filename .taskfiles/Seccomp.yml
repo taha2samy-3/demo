@@ -28,12 +28,26 @@ tasks:
         # The spod daemon (the actual per-node recorder) is a custom resource
         # that SPO's controller creates asynchronously after it starts, so it
         # may not exist yet the instant the controller Deployment becomes
-        # Available. Poll for it to show up, then wait for its Ready condition.
+        # Available. Poll for it to show up before touching it.
         echo "Waiting for the spod daemon to be created..."
         for i in $(seq 1 60); do
           kubectl get spod spod -n {{.SPO_NS}} >/dev/null 2>&1 && break
           sleep 5
         done
+      - |
+        # enricher.enableBpfRecorder defaults to false on operator.yaml's own
+        # spod CR — recorder: Bpf in a ProfileRecording silently does nothing
+        # without this (the controller still annotates pods, but spod never
+        # runs a recorder, so the ProfileRecording's lock finalizer waits
+        # forever for a session that never starts). Confirmed against a live
+        # v1.1.0 install: `kubectl get spod spod -o yaml` showed
+        # enricher.enableBpfRecorder: false and the daemon container's own
+        # args included `--with-recording=false` until this was set.
+        kubectl patch spod spod -n {{.SPO_NS}} --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
+      - |
+        # Patching spod's spec above rolls its DaemonSet pods again, so wait
+        # for Ready AFTER the patch, not before — otherwise this can pass
+        # against the pre-patch (recording-disabled) generation.
         kubectl wait --for=condition=Ready spod/spod -n {{.SPO_NS}} --timeout=300s
 
   enable-recording:
@@ -63,19 +77,55 @@ tasks:
         echo "missing and can get blocked later if the profile is enforced."
         echo "=========================================================================="
 
+  scale-down:
+    desc: 'Scale service-a/service-b to 0 in both namespaces'
+    cmds:
+      # ProfileRecording's finalizer is NOT released by deleting the object.
+      # A separate RecordingTrackerReconciler watches Pods and adds every pod
+      # matching the recording's podSelector to .status.activeWorkloads
+      # (regardless of whether the recording is already being deleted); the
+      # finalizer only clears once that list is empty, i.e. once every pod it
+      # ever tracked has actually been deleted. service-a/service-b are
+      # long-running Deployments that never exit on their own, so with the
+      # pods just sitting there the finalizer would never clear — confirmed
+      # by reading internal/pkg/manager/recordingtracker/recordingtracker.go
+      # in the v1.1.0 source. `kubectl rollout restart` does NOT work around
+      # this either: Kubernetes' default RollingUpdate creates the new pod
+      # before deleting the old one, so a still-existing ProfileRecording
+      # immediately re-tracks the new pod. Scaling to 0 deletes the tracked
+      # pod with no replacement to re-track it. Also useful standalone, for
+      # manually recovering a stuck recording — see seccomp/README.md.
+      - kubectl scale deploy/service-a deploy/service-b -n {{.NS_FULL}} --replicas=0
+      - kubectl scale deploy/service-a deploy/service-b -n {{.NS_STRIPPED}} --replicas=0
+
+  scale-up:
+    desc: 'Scale service-a/service-b back to 1 in both namespaces (the chart uses a fixed replica count of 1)'
+    cmds:
+      - kubectl scale deploy/service-a deploy/service-b -n {{.NS_FULL}} --replicas=1
+      - kubectl scale deploy/service-a deploy/service-b -n {{.NS_STRIPPED}} --replicas=1
+
   stop-recording:
     desc: 'Finalize recording — this triggers SPO to emit the SeccompProfile CRDs'
     cmds:
-      - kubectl delete profilerecording --all -n {{.NS_FULL}} --ignore-not-found
-      - kubectl delete profilerecording --all -n {{.NS_STRIPPED}} --ignore-not-found
+      - kubectl delete profilerecording --all -n {{.NS_FULL}} --ignore-not-found --wait=false
+      - kubectl delete profilerecording --all -n {{.NS_STRIPPED}} --ignore-not-found --wait=false
+      - echo "Scaling service-a/service-b to 0 to release the recorder's tracked pods..."
+      - task: scale-down
+      - kubectl wait --for=delete profilerecording --all -n {{.NS_FULL}} --timeout=180s
+      - kubectl wait --for=delete profilerecording --all -n {{.NS_STRIPPED}} --timeout=180s
+      - task: scale-up
 
   list:
     desc: 'Show generated SeccompProfiles in both namespaces'
     cmds:
+      # SeccompProfile is cluster-scoped (confirmed: `kubectl api-resources`
+      # shows NAMESPACED=false), so `-n` is silently ignored by kubectl —
+      # filter on the spo.x-k8s.io/recording-namespace label it's created
+      # with instead.
       - echo "--- {{.NS_FULL}} ---"
-      - 'kubectl get seccompprofile -n {{.NS_FULL}} -o custom-columns="NAME:.metadata.name,STATUS:.status.status,LOCALHOSTPROFILE:.status.localhostProfile"'
+      - 'kubectl get seccompprofile -l spo.x-k8s.io/recording-namespace={{.NS_FULL}} -o custom-columns="NAME:.metadata.name,STATUS:.status.status,LOCALHOSTPROFILE:.status.localhostProfile"'
       - echo "--- {{.NS_STRIPPED}} ---"
-      - 'kubectl get seccompprofile -n {{.NS_STRIPPED}} -o custom-columns="NAME:.metadata.name,STATUS:.status.status,LOCALHOSTPROFILE:.status.localhostProfile"'
+      - 'kubectl get seccompprofile -l spo.x-k8s.io/recording-namespace={{.NS_STRIPPED}} -o custom-columns="NAME:.metadata.name,STATUS:.status.status,LOCALHOSTPROFILE:.status.localhostProfile"'
 
   show:
     desc: 'Print one SeccompProfile as formatted JSON. Usage: task seccomp:show NAME=service-a NS=tls-demo-full'
@@ -85,18 +135,43 @@ tasks:
       - sh: 'test -n "{{.NS}}"'
         msg: 'NS is required, e.g. task seccomp:show NAME=service-a NS=tls-demo-full'
     cmds:
-      - kubectl get seccompprofile {{.NAME}} -n {{.NS}} -o jsonpath='{.spec}' | jq .
+      # NAME here is the ProfileRecording name (e.g. "service-a"), not the
+      # generated SeccompProfile's own metadata.name (which has a random
+      # per-pod suffix) — look it up by its recording-id/recording-namespace
+      # labels instead, cluster-scoped so no -n.
+      - kubectl get seccompprofile -l spo.x-k8s.io/recording-id={{.NAME}},spo.x-k8s.io/recording-namespace={{.NS}} -o jsonpath='{.items[0].spec}' | jq .
+
+  show-all:
+    desc: 'Print full JSON for all 4 profiles (service-a/service-b x full/stripped) at once, no args needed'
+    cmds:
+      - |
+        for ns in {{.NS_FULL}} {{.NS_STRIPPED}}; do
+          for svc in service-a service-b; do
+            echo ""
+            echo "=== $svc ($ns) ==="
+            spec=$(kubectl get seccompprofile -l spo.x-k8s.io/recording-id=$svc,spo.x-k8s.io/recording-namespace=$ns -o jsonpath='{.items[0].spec}')
+            if [ -z "$spec" ]; then
+              echo "  (no profile found — run 'task seccomp:list' to check status)"
+            else
+              echo "$spec" | jq .
+            fi
+          done
+        done
 
   export:
-    desc: 'Dump every generated SeccompProfile to {{.PROFILE_OUT_DIR}}/<namespace>/<name>.json'
+    desc: 'Dump every generated SeccompProfile to {{.PROFILE_OUT_DIR}}/<namespace>/<recording-id>.json'
     cmds:
       - |
         set -e
         for ns in {{.NS_FULL}} {{.NS_STRIPPED}}; do
           mkdir -p "{{.PROFILE_OUT_DIR}}/$ns"
-          for name in $(kubectl get seccompprofile -n "$ns" -o jsonpath='{.items[*].metadata.name}'); do
-            out="{{.PROFILE_OUT_DIR}}/$ns/$name.json"
-            kubectl get seccompprofile "$name" -n "$ns" -o jsonpath='{.spec}' | jq . > "$out"
+          for name in $(kubectl get seccompprofile -l spo.x-k8s.io/recording-namespace="$ns" -o jsonpath='{.items[*].metadata.name}'); do
+            # File name is the recording-id label (e.g. "service-a"), not the
+            # object's own metadata.name (which carries a random per-pod
+            # suffix) — this is what `diff` looks the file up by.
+            recording_id=$(kubectl get seccompprofile "$name" -o jsonpath='{.metadata.labels.spo\.x-k8s\.io/recording-id}')
+            out="{{.PROFILE_OUT_DIR}}/$ns/${recording_id:-$name}.json"
+            kubectl get seccompprofile "$name" -o jsonpath='{.spec}' | jq . > "$out"
             echo "wrote $out"
           done
         done
@@ -129,6 +204,8 @@ tasks:
   clean:
     desc: 'Delete generated SeccompProfile CRDs in both namespaces and remove exported profiles'
     cmds:
-      - kubectl delete seccompprofile --all -n {{.NS_FULL}} --ignore-not-found
-      - kubectl delete seccompprofile --all -n {{.NS_STRIPPED}} --ignore-not-found
+      # Cluster-scoped resource — `--all -n` would ignore the namespace and
+      # delete everything twice over; scope by label instead.
+      - kubectl delete seccompprofile -l spo.x-k8s.io/recording-namespace={{.NS_FULL}} --ignore-not-found
+      - kubectl delete seccompprofile -l spo.x-k8s.io/recording-namespace={{.NS_STRIPPED}} --ignore-not-found
       - rm -rf {{.PROFILE_OUT_DIR}}

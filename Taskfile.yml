@@ -27,7 +27,10 @@ tasks:
     desc:
     cmds:
       - task: helm:install-all
+      - task: seccomp:scale-down
       - task: seccomp:enable-recording
       - task: seccomp:start-recording
+      - task: seccomp:scale-up
+
   pixie-collector:
     
