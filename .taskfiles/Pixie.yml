@@ -15,3 +15,6 @@ tasks:
     desc: 'Remove Pixie from the current KUBECONFIG cluster'
     cmds:
       - px undeploy
+  forward:
+    cmds:
+      - kubectl port-forward -n pixie-collector svc/pixie-collector 5000:5000 4317:4317

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"log/slog"
 	"math/big"
 	"net"
@@ -25,6 +26,28 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// probeErrorFilter wraps an io.Writer and, when dropProbe is true, drops log
+// lines matching the signature of a Kubernetes tcpSocket health probe:
+// kubelet opens a TCP connection, confirms the port is listening, and closes
+// it without completing a TLS handshake, which net/http's http.Server logs
+// via its ErrorLog as "TLS handshake error from <ip>: EOF". That's harmless
+// and, at probe frequency, drowns out real traffic in a demo. Only lines
+// that are BOTH about a TLS handshake error AND end in EOF are dropped — a
+// genuine TLS failure (bad cert, protocol mismatch, "remote error:" alert)
+// doesn't end in bare "EOF" and still passes through untouched.
+type probeErrorFilter struct {
+	out       io.Writer
+	dropProbe bool
+}
+
+func (f *probeErrorFilter) Write(p []byte) (int, error) {
+	line := strings.TrimRight(string(p), "\n")
+	if f.dropProbe && strings.Contains(line, "TLS handshake error") && strings.HasSuffix(line, "EOF") {
+		return len(p), nil // swallow, but report as if written so log.Logger doesn't complain
+	}
+	return f.out.Write(p)
+}
 
 // logger is set once in main() and read by code that runs outside main's
 // own scope (the seed loader, and generatePayload/renderResponse which run
@@ -111,7 +134,7 @@ func loadSeeds(path string) {
 		parsedTemplatesByKind[t.Kind] = &parsedTemplates[len(parsedTemplates)-1]
 	}
 
-	logger.Info("loaded seed templates", "path", path, "count", len(parsedTemplates))
+	logger.Info("seed templates loaded", "templates", len(parsedTemplates), "pools", len(seeds.Pools))
 }
 
 // randIndex returns a crypto/rand index in [0, n).
@@ -307,12 +330,18 @@ func main() {
 		logger.Info("Ingest server handled request",
 			"peer_cn", peerCN,
 			"msg_id", reqData.ID,
+			"kind", reqData.Kind,
+			"payload", preview(body, 120),
 			"bytes_in", len(body),
 			"bytes_out", len(respBytes),
 			"status", http.StatusOK,
 			"latency_ms", time.Since(start).Milliseconds(),
 		)
 	})
+
+	// Off by default: silence health-probe TLS handshake noise. Set
+	// LOG_PROBE_ERRORS=true to see it again when actually debugging TLS.
+	logProbeErrors := os.Getenv("LOG_PROBE_ERRORS") == "true"
 
 	server := &http.Server{
 		Addr:         listenAddr,
@@ -322,6 +351,7 @@ func main() {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  30 * time.Second,
+		ErrorLog:     log.New(&probeErrorFilter{out: os.Stderr, dropProbe: !logProbeErrors}, "", log.LstdFlags),
 	}
 
 	// 2. Client setup
@@ -445,9 +475,18 @@ func sendPayload(client *http.Client, url string, from string, logger *slog.Logg
 		peerCN = resp.TLS.PeerCertificates[0].Subject.CommonName
 	}
 
+	// Best-effort: every generated request has a "kind" field, but this
+	// stays "" rather than failing the log line if that ever isn't true.
+	var payloadMeta struct {
+		Kind string `json:"kind"`
+	}
+	_ = json.Unmarshal(payload, &payloadMeta)
+
 	logger.Info("Client sent payload",
 		"peer_cn", peerCN,
 		"msg_id", id,
+		"kind", payloadMeta.Kind,
+		"payload", preview(payload, 120),
 		"bytes_out", len(payload),
 		"bytes_in", len(respBody),
 		"status", resp.StatusCode,
@@ -478,6 +517,23 @@ func generatePayload(from string) ([]byte, string) {
 	id := randomHexID()
 	fallback, _ := json.Marshal(map[string]string{"id": id, "kind": "fallback"})
 	return fallback, id
+}
+
+// preview returns a rune-safe, single-line preview of b: newlines collapsed
+// to spaces, truncated to at most n runes with "..." appended if it was cut.
+func preview(b []byte, n int) string {
+	oneLine := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, string(b))
+
+	runes := []rune(oneLine)
+	if len(runes) <= n {
+		return oneLine
+	}
+	return string(runes[:n]) + "..."
 }
 
 func randomJitter() time.Duration {

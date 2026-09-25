@@ -42,6 +42,8 @@ spec:
               value: ":8443"
             - name: SEND_INTERVAL_SECONDS
               value: {{ $.Values.sendIntervalSeconds | quote }}
+            - name: LOG_PROBE_ERRORS
+              value: {{ $.Values.logProbeErrors | default "false" | quote }}
           ports:
             - containerPort: 8443
               protocol: TCP

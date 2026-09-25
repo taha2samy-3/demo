@@ -17,15 +17,17 @@ tasks:
       - task --list
     silent: true
 
-  deploy-all:
-    desc: 'Bring up infra, then deploy Pixie, then install all Helm releases (sequential — infra must be ready first)'
+  deploy-part-1:
+    desc: 'Bring up infra, deploy platform tools, install services, and start seccomp recording'
     cmds:
       - task: infra:up
       - task: seccomp:install-operator
-      - 
       - task: pixie:deploy
+  deploy-part-2:
+    desc:
+    cmds:
       - task: helm:install-all
-  deploy-pixie:
-    cmds: 
-      - task: pixie:deploy
-      
+      - task: seccomp:enable-recording
+      - task: seccomp:start-recording
+  pixie-collector:
+    

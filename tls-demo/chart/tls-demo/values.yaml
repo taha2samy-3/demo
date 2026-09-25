@@ -5,6 +5,11 @@ image:
 
 sendIntervalSeconds: "5"
 
+# Health-probe TLS handshake noise (kubelet's tcpSocket probe) is filtered
+# out of server logs by default. Set to "true" to see it again when
+# actually debugging TLS.
+logProbeErrors: "false"
+
 resources:
   limits:
     memory: "128Mi"
