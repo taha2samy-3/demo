@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Four Flame Graph Types — tls-demo</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+
+    --bg: #ffffff;
+    --bg-2: #f4f5f7;
+    --bg-3: #e9ebef;
+    --fg: #14161a;
+    --fg-2: #5a6472;
+    --fg-3: #8d97a5;
+    --line: #d8dce3;
+    --accent: #1f6feb;
+    --warn-bg: #fff6e0;
+    --warn-line: #e0b34a;
+    --warn-fg: #6b4c07;
+    --frame-stroke: rgba(255,255,255,0.55);
+    --code-bg: #eef0f4;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117; --bg-2: #151b23; --bg-3: #1e262f;
+      --fg: #e6edf3; --fg-2: #9aa7b4; --fg-3: #6e7b8a;
+      --line: #2a333d; --accent: #4f9cf9;
+      --warn-bg: #2a2313; --warn-line: #7a6320; --warn-fg: #e8cf8a;
+      --frame-stroke: rgba(0,0,0,0.38);
+      --code-bg: #1b222b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --bg-2: #151b23; --bg-3: #1e262f;
+    --fg: #e6edf3; --fg-2: #9aa7b4; --fg-3: #6e7b8a;
+    --line: #2a333d; --accent: #4f9cf9;
+    --warn-bg: #2a2313; --warn-line: #7a6320; --warn-fg: #e8cf8a;
+    --frame-stroke: rgba(0,0,0,0.38);
+    --code-bg: #1b222b;
+  }
+
+  * { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font); line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 20px 72px; }
+
+  header h1 { font-size: 1.6rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p.sub { margin: 0 0 20px; color: var(--fg-2); font-size: 0.95rem; }
+
+  .notice {
+    background: var(--warn-bg); border: 1px solid var(--warn-line);
+    color: var(--warn-fg); border-radius: 8px; padding: 12px 14px;
+    font-size: 0.88rem; margin-bottom: 22px;
+  }
+  .notice strong { font-weight: 650; }
+
+  .toolbar {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 24px; padding: 12px 14px;
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  }
+  .toolbar input[type="search"] {
+    flex: 1 1 220px; min-width: 160px;
+    padding: 7px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg);
+    color: var(--fg); font-family: var(--mono); font-size: 0.85rem;
+  }
+  .toolbar input[type="search"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn {
+    padding: 7px 13px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg);
+    color: var(--fg); font-family: var(--font); font-size: 0.85rem;
+  }
+  .btn:hover { background: var(--bg-3); }
+
+  .panel {
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg-2); margin-bottom: 26px; overflow: hidden;
+  }
+  .panel > header {
+    padding: 14px 16px 12px; border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 1.05rem; letter-spacing: -0.005em; }
+  .panel .meta { font-size: 0.82rem; color: var(--fg-3); font-family: var(--mono); }
+  .panel .desc { margin: 8px 0 0; font-size: 0.88rem; color: var(--fg-2); }
+  .panel .desc code, .howto code {
+    font-family: var(--mono); font-size: 0.85em;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+  }
+
+  .fg-host { padding: 10px 10px 6px; overflow-x: auto; }
+  .fg-host svg { display: block; width: 100%; height: auto; }
+  .fg-host rect.frame { cursor: pointer; stroke: var(--frame-stroke); stroke-width: 0.5; }
+  .fg-host rect.frame.dim { opacity: 0.22; }
+  .fg-host rect.frame.hit { stroke: #ff2ec4; stroke-width: 1.6; }
+  .fg-host text.flabel {
+    font-family: var(--mono); font-size: 10px; pointer-events: none;
+    fill: #16181c; dominant-baseline: central;
+  }
+
+  .panel footer {
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    padding: 8px 16px 12px; font-size: 0.8rem; color: var(--fg-3);
+    border-top: 1px solid var(--line);
+  }
+  .legend { display: flex; gap: 6px; align-items: center; }
+  .legend .bar {
+    width: 132px; height: 10px; border-radius: 3px;
+    background: linear-gradient(90deg, #d0392f, #e8a33d, #6fae52, #3b7fd4);
+  }
+
+  .howto {
+    margin: 0; padding: 12px 16px 14px;
+    border-top: 1px dashed var(--line); background: var(--bg);
+    font-size: 0.84rem; color: var(--fg-2);
+  }
+  .howto summary { cursor: pointer; color: var(--fg); font-weight: 600; font-size: 0.86rem; }
+  .howto pre {
+    margin: 10px 0 0; padding: 10px 12px; overflow-x: auto;
+    background: var(--code-bg); border-radius: 6px;
+    font-family: var(--mono); font-size: 0.8rem; line-height: 1.5;
+    color: var(--fg);
+  }
+  .howto p { margin: 10px 0 0; }
+
+  #tip {
+    position: fixed; pointer-events: none; z-index: 50; opacity: 0;
+    transition: opacity .08s; max-width: min(460px, 86vw);
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 10px; font-size: 0.8rem; line-height: 1.45;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.28);
+  }
+  #tip .fn { font-family: var(--mono); word-break: break-all; display: block; margin-bottom: 4px; }
+  #tip .st { color: var(--fg-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Four flame graph types</h1>
+  <p class="sub">On-CPU, off-CPU, allocations, and IPC-coloured — rendered side by side for <code>tls-demo</code> (Go, mutual TLS between service-a and service-b).</p>
+</header>
+
+<div class="notice">
+  <strong>These are sample stacks, not a live capture.</strong> They're shaped to match what this app actually does — Go runtime, <code>crypto/tls</code> handshakes, ECDSA cert verification, JSON payload rendering — so the graphs read realistically, but the numbers are invented. Each panel has a <em>How to capture real data</em> section with the commands that produce the real thing. Replace the folded-stack arrays in the page source and the graphs redraw from your own data.
+</div>
+
+<div class="toolbar">
+  <input id="search" type="search" placeholder="Highlight frames matching… (e.g. crypto, runtime, json)" autocomplete="off" spellcheck="false">
+  <button class="btn" id="clearSearch">Clear</button>
+  <button class="btn" id="resetAll">Reset zoom</button>
+  <button class="btn" id="themeBtn">Toggle theme</button>
+</div>
+
+<div id="panels"></div>
+
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Minimal dependency-free flame graph renderer.
+
+   Input is folded-stack format, the same format Brendan Gregg's
+   stackcollapse-*.pl scripts emit:
+       frame_a;frame_b;frame_c <value>
+   one stack per line. For the IPC panel each line carries TWO numbers
+   (cycles and instructions) so IPC can be computed per node after the tree
+   is summed — that matters, because a parent's IPC is the ratio of its
+   TOTALS, not an average of its children's ratios.
+--------------------------------------------------------------------------- */
+
+const W = 1160;          // internal coordinate width; SVG scales to container
+const ROW = 17;          // frame height
+const PAD = 2;           // top padding inside the svg
+
+function parseFolded(text, twoValues) {
+  const root = { name: "all", value: 0, extra: 0, children: new Map(), depth: 0 };
+  for (const raw of text.trim().split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s+/);
+    let v, e = 0;
+    if (twoValues) {
+      e = Number(parts.pop());       // instructions
+      v = Number(parts.pop());       // cycles
+    } else {
+      v = Number(parts.pop());
+    }
+    if (!isFinite(v)) continue;
+    const frames = parts.join(" ").split(";").filter(Boolean);
+    let node = root;
+    root.value += v; root.extra += e;
+    for (const f of frames) {
+      let child = node.children.get(f);
+      if (!child) {
+        child = { name: f, value: 0, extra: 0, children: new Map(), depth: node.depth + 1, parent: node };
+        node.children.set(f, child);
+      }
+      child.value += v; child.extra += e;
+      node = child;
+    }
+  }
+  return root;
+}
+
+function layout(root) {
+  const rows = [];
+  (function walk(node, x) {
+    const d = node.depth;
+    (rows[d] ||= []).push({ node, x, w: node.value });
+    let cx = x;
+    const kids = [...node.children.values()].sort((a, b) => b.value - a.value);
+    for (const k of kids) { walk(k, cx); cx += k.value; }
+  })(root, 0);
+  return rows;
+}
+
+/* Classic flame-graph palette: warm hues, deterministic per frame name so the
+   same function keeps the same colour across panels. */
+function hashHue(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function warmColor(name) {
+  const h = hashHue(name);
+  const hue = 12 + (h % 42);                 // red -> orange -> yellow
+  const sat = 62 + (h >> 6) % 22;
+  const lig = 54 + (h >> 11) % 12;
+  return `hsl(${hue} ${sat}% ${lig}%)`;
+}
+/* IPC colour ramp: low IPC (stalled, memory-bound) = red,
+   high IPC (compute-bound) = blue. Stated in the panel legend too. */
+function ipcColor(ipc) {
+  const stops = [
+    [0.00, [208, 57, 47]],
+    [0.60, [232, 163, 61]],
+    [1.20, [150, 170, 70]],
+    [2.00, [111, 174, 82]],
+    [3.20, [59, 127, 212]]
+  ];
+  const v = Math.max(0, Math.min(3.2, ipc));
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [p0, c0] = stops[i], [p1, c1] = stops[i + 1];
+    if (v >= p0 && v <= p1) {
+      const t = (v - p0) / (p1 - p0 || 1);
+      const c = c0.map((a, j) => Math.round(a + (c1[j] - a) * t));
+      return `rgb(${c[0]} ${c[1]} ${c[2]})`;
+    }
+  }
+  return "rgb(59 127 212)";
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const tip = document.getElementById("tip");
+
+function renderGraph(host, spec) {
+  const root = parseFolded(spec.data, spec.mode === "ipc");
+  const rows = layout(root);
+  const depth = rows.length;
+  const H = depth * ROW + PAD * 2;
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", spec.title + " flame graph");
+
+  const state = { focus: root, svg, rows, root, spec };
+
+  function draw() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const f = state.focus;
+    const scale = W / f.value;
+    // x offset of the focused node
+    let fx = 0;
+    (function findX(node, x) {
+      if (node === f) { fx = x; return true; }
+      let cx = x;
+      const kids = [...node.children.values()].sort((a, b) => b.value - a.value);
+      for (const k of kids) { if (findX(k, cx)) return true; cx += k.value; }
+      return false;
+    })(root, 0);
+
+    rows.forEach((row) => {
+      row.forEach(({ node, x, w }) => {
+        // only draw frames inside the focused subtree
+        if (node.depth < f.depth) {
+          if (!(f === node || isAncestor(node, f))) return;
+        }
+        const px = (x - fx) * scale;
+        const pw = w * scale;
+        if (pw < 0.35 || px > W || px + pw < 0) return;
+        const py = PAD + node.depth * ROW - (f.depth * ROW) + (f.depth * ROW);
+        const y = PAD + node.depth * ROW;
+
+        const r = document.createElementNS(SVG_NS, "rect");
+        r.setAttribute("class", "frame");
+        r.setAttribute("x", px.toFixed(2));
+        r.setAttribute("y", y);
+        r.setAttribute("width", Math.max(0.6, pw - 0.6).toFixed(2));
+        r.setAttribute("height", ROW - 1);
+        r.setAttribute("rx", "1.5");
+        const ipc = node.value ? node.extra / node.value : 0;
+        r.setAttribute("fill", spec.mode === "ipc" ? ipcColor(ipc) : warmColor(node.name));
+        r.__node = node; r.__ipc = ipc;
+        svg.appendChild(r);
+
+        const maxChars = Math.floor((pw - 6) / 5.55);
+        if (maxChars >= 4) {
+          const t = document.createElementNS(SVG_NS, "text");
+          t.setAttribute("class", "flabel");
+          t.setAttribute("x", (px + 3).toFixed(2));
+          t.setAttribute("y", y + (ROW - 1) / 2);
+          const nm = shortName(node.name);
+          t.textContent = nm.length > maxChars ? nm.slice(0, Math.max(1, maxChars - 1)) + "…" : nm;
+          svg.appendChild(t);
+        }
+      });
+    });
+    applySearch(currentQuery);
+  }
+
+  function isAncestor(a, b) { let p = b.parent; while (p) { if (p === a) return true; p = p.parent; } return false; }
+
+  svg.addEventListener("mousemove", (e) => {
+    const r = e.target.closest ? e.target.closest("rect.frame") : null;
+    if (!r || !r.__node) { tip.style.opacity = 0; return; }
+    const n = r.__node;
+    const pct = (n.value / root.value * 100);
+    let body = `<span class="fn">${escapeHtml(n.name)}</span><span class="st">`;
+    if (spec.mode === "ipc") {
+      body += `${fmt(n.value)} cycles · ${fmt(n.extra)} instr · IPC ${r.__ipc.toFixed(2)} · ${pct.toFixed(2)}% of total`;
+    } else {
+      body += `${fmt(n.value)} ${spec.unit} · ${pct.toFixed(2)}% of total`;
+    }
+    body += `</span>`;
+    tip.innerHTML = body;
+    tip.style.opacity = 1;
+    const ox = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 10);
+    const oy = Math.min(e.clientY + 16, window.innerHeight - tip.offsetHeight - 10);
+    tip.style.left = ox + "px"; tip.style.top = oy + "px";
+  });
+  svg.addEventListener("mouseleave", () => { tip.style.opacity = 0; });
+  svg.addEventListener("click", (e) => {
+    const r = e.target.closest ? e.target.closest("rect.frame") : null;
+    if (!r || !r.__node) return;
+    state.focus = (state.focus === r.__node) ? root : r.__node;
+    draw();
+  });
+
+  host.appendChild(svg);
+  graphs.push({ state, draw, reset: () => { state.focus = root; draw(); } });
+  draw();
+  return root;
+}
+
+function shortName(n) {
+  // trim long Go package paths so labels stay readable at small widths
+  return n.replace(/^github\.com\//, "").replace(/^golang\.org\/x\//, "x/");
+}
+function fmt(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "G";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const graphs = [];
+let currentQuery = "";
+function applySearch(q) {
+  currentQuery = q;
+  const needle = q.trim().toLowerCase();
+  document.querySelectorAll(".fg-host rect.frame").forEach(r => {
+    r.classList.remove("hit", "dim");
+    if (!needle || !r.__node) return;
+    if (r.__node.name.toLowerCase().includes(needle)) r.classList.add("hit");
+    else r.classList.add("dim");
+  });
+}
+
+/* ------------------------------ sample data ------------------------------ */
+
+const PANELS = [
+  {
+    id: "oncpu",
+    title: "1 · On-CPU",
+    meta: "width = sampled CPU time · 99 Hz timer sampling",
+    unit: "samples",
+    mode: "warm",
+    desc: "Where the CPU actually spends cycles. Cost is fixed and predictable — the sample rate is set in advance, so it doesn't grow with load. This is the one Pixie already gives you out of the box.",
+    howto: `# From the cluster you already have — Pixie's built-in profiler:
+px run px/perf_flamegraph
+
+# Standalone on a node, via perf + Brendan Gregg's FlameGraph scripts:
+perf record -F 99 -g -p $PID -- sleep 30
+perf script | ./stackcollapse-perf.pl > oncpu.folded
+
+# For a Go process with net/http/pprof exposed, the quickest route is
+# pprof's own UI (no folded conversion needed):
+go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30`,
+    data: `
+service-a;runtime.mstart;runtime.mcall;runtime.schedule;runtime.findRunnable 38
+service-a;runtime.mstart;runtime.mcall;runtime.schedule;runtime.netpoll 22
+service-a;runtime.gcBgMarkWorker;runtime.gcDrain;runtime.scanobject 64
+service-a;runtime.gcBgMarkWorker;runtime.gcDrain;runtime.greyobject 21
+service-a;main.main;main.sendLoop;main.generatePayload;text/template.(*Template).Execute;text/template.(*state).walk 33
+service-a;main.main;main.sendLoop;main.generatePayload;encoding/json.Valid 18
+service-a;main.main;main.sendLoop;main.buildContext;crypto/rand.Read;syscall.Syscall 26
+service-a;main.main;main.sendLoop;net/http.(*Client).Do;net/http.(*Transport).roundTrip;net/http.(*Transport).getConn;net/http.(*Transport).dialConn;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).clientHandshake;crypto/tls.(*clientHandshakeStateTLS13).handshake;crypto/ecdsa.VerifyASN1;crypto/elliptic.(*nistPoint).ScalarBaseMult 268
+service-a;main.main;main.sendLoop;net/http.(*Client).Do;net/http.(*Transport).roundTrip;net/http.(*Transport).getConn;net/http.(*Transport).dialConn;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).clientHandshake;crypto/tls.(*clientHandshakeStateTLS13).handshake;crypto/x509.(*Certificate).CheckSignatureFrom;crypto/x509.parseCertificate 121
+service-a;main.main;main.sendLoop;net/http.(*Client).Do;net/http.(*Transport).roundTrip;net/http.(*Transport).getConn;net/http.(*Transport).dialConn;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).clientHandshake;crypto/ecdh.(*nistCurve).ECDH 74
+service-a;main.main;main.sendLoop;net/http.(*Client).Do;net/http.(*Transport).roundTrip;crypto/tls.(*Conn).Write;crypto/tls.(*halfConn).encrypt;crypto/cipher.(*gcmAsm).Seal 57
+service-a;main.main;main.sendLoop;net/http.(*Client).Do;net/http.(*Transport).roundTrip;crypto/tls.(*Conn).Read;crypto/tls.(*halfConn).decrypt;crypto/cipher.(*gcmAsm).Open 41
+service-a;net/http.(*conn).serve;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).serverHandshake;crypto/tls.(*serverHandshakeStateTLS13).handshake;crypto/ecdsa.SignASN1 196
+service-a;net/http.(*conn).serve;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).serverHandshake;crypto/x509.(*CertPool).findPotentialParents 88
+service-a;net/http.(*conn).serve;net/http.serverHandler.ServeHTTP;main.ingestHandler;encoding/json.Unmarshal;encoding/json.(*decodeState).object 47
+service-a;net/http.(*conn).serve;net/http.serverHandler.ServeHTTP;main.ingestHandler;main.renderResponse;text/template.(*Template).Execute 29
+service-a;net/http.(*conn).serve;net/http.serverHandler.ServeHTTP;log/slog.(*Logger).Info;log/slog.(*JSONHandler).Handle 24
+service-a;net/http.(*conn).serve;internal/poll.(*FD).Read;syscall.read 35
+`
+  },
+  {
+    id: "offcpu",
+    title: "2 · Off-CPU",
+    meta: "width = blocked time · traced on every sched_switch",
+    unit: "µs blocked",
+    mode: "warm",
+    desc: "Where wall-clock time goes while the thread is <em>not</em> running — waiting on network, locks, channels, sleeps. The expensive one: there's no fixed sample rate, it fires on every context switch, so cost rises exactly when the system is busiest. Always filter by PID and set a minimum block duration.",
+    howto: `# bcc's offcputime emits folded output directly with -f:
+offcputime-bpfcc -df -p $PID 30 > offcpu.folded
+
+# Filter out sub-millisecond blocks (-m) to cut the event rate hard —
+# without this, a busy node can generate hundreds of thousands of
+# events per second:
+offcputime-bpfcc -df -m 1000 -p $PID 30 > offcpu.folded
+
+# Pixie does NOT collect this: its perf_profiler is on-CPU only
+# (verified in src/stirling/source_connectors/perf_profiler).`,
+    data: `
+service-a;main.sendLoop;time.Sleep;runtime.goparkunlock 1840000
+service-a;main.sendLoop;net/http.(*Client).Do;net/http.(*persistConn).roundTrip;runtime.gopark;runtime.netpollblock 962000
+service-a;main.sendLoop;net/http.(*Transport).getConn;net.(*Dialer).DialContext;net.(*sysDialer).dialSerial;internal/poll.(*FD).Read;runtime.netpollblock 318000
+service-a;main.sendLoop;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).readHandshake;internal/poll.(*FD).Read;runtime.netpollblock 274000
+service-a;net/http.(*conn).serve;internal/poll.(*FD).Read;runtime.netpollblock 1120000
+service-a;net/http.(*conn).serve;net/http.serverHandler.ServeHTTP;main.ingestHandler;sync.(*Mutex).Lock;runtime.semacquire1 96000
+service-a;net/http.(*conn).serve;net/http.serverHandler.ServeHTTP;main.ingestHandler;main.renderResponse;sync.(*RWMutex).RLock;runtime.semacquire1 61000
+service-a;runtime.gcBgMarkWorker;runtime.gopark 240000
+service-a;runtime.bgsweep;runtime.gopark 88000
+service-a;runtime.forcegchelper;runtime.gopark 152000
+service-a;os/signal.signal_recv;runtime.gopark 210000
+service-a;main.pingPeer;time.Sleep;runtime.goparkunlock 430000
+`
+  },
+  {
+    id: "alloc",
+    title: "3 · Memory / allocations",
+    meta: "width = bytes allocated · from the Go runtime's own heap profile",
+    unit: "bytes",
+    mode: "warm",
+    desc: "Which call paths allocate. Cheap when it comes from the language runtime — Go already tracks every allocation, so reading the heap profile costs almost nothing. Doing the same from outside with a uprobe on <code>malloc</code> is far more expensive, and wouldn't see Go's allocator at all, since Go manages its own heap.",
+    howto: `# Go's built-in heap profile — allocations since process start:
+curl -s http://localhost:6060/debug/pprof/allocs > allocs.pb.gz
+go tool pprof -http=:8080 allocs.pb.gz     # interactive flame graph
+
+# Live (in-use) heap instead of cumulative allocations:
+go tool pprof -http=:8080 http://localhost:6060/debug/pprof/heap
+
+# Non-Go processes, via bcc (much heavier — traps on every malloc):
+stackcount-bpfcc -f -U -p $PID 'c:malloc' > mem.folded`,
+    data: `
+service-a;main.sendLoop;main.generatePayload;text/template.(*Template).Execute;bytes.(*Buffer).grow;runtime.makeslice 2884096
+service-a;main.sendLoop;main.generatePayload;text/template.(*state).printValue;fmt.Sprintf;runtime.concatstrings 1402880
+service-a;main.sendLoop;main.buildContext;runtime.makemap 618496
+service-a;main.sendLoop;main.buildContext;strings.ToLower;runtime.stringtoslicebyte 289792
+service-a;main.sendLoop;net/http.NewRequest;net/http.readRequest;runtime.newobject 512000
+service-a;main.sendLoop;net/http.(*Client).Do;crypto/tls.(*Conn).Handshake;crypto/tls.(*Conn).readHandshake;runtime.makeslice 1638400
+service-a;main.sendLoop;net/http.(*Client).Do;crypto/tls.(*Conn).Handshake;crypto/x509.ParseCertificate;runtime.newobject 2211840
+service-a;main.sendLoop;net/http.(*Client).Do;crypto/tls.(*Conn).Write;crypto/tls.(*halfConn).encrypt;runtime.growslice 744448
+service-a;net/http.(*conn).serve;net/http.(*conn).readRequest;bufio.NewReaderSize;runtime.makeslice 1048576
+service-a;net/http.(*conn).serve;main.ingestHandler;io.ReadAll;runtime.growslice 1957888
+service-a;net/http.(*conn).serve;main.ingestHandler;encoding/json.Unmarshal;encoding/json.(*decodeState).literalStore;runtime.newobject 826368
+service-a;net/http.(*conn).serve;main.ingestHandler;main.renderResponse;bytes.(*Buffer).grow;runtime.makeslice 1294336
+service-a;net/http.(*conn).serve;log/slog.(*Logger).Info;log/slog.(*JSONHandler).Handle;runtime.growslice 458752
+service-a;runtime.gcBgMarkWorker;runtime.gcDrain 131072
+`
+  },
+  {
+    id: "ipc",
+    title: "4 · IPC-coloured (instructions per cycle)",
+    meta: "width = CPU cycles · colour = IPC · needs hardware PMU counters",
+    unit: "cycles",
+    mode: "ipc",
+    desc: "Not a separate kind of flame graph — it's the on-CPU graph with <strong>width = cycles</strong> and <strong>colour = IPC</strong> (Gregg's CPI/IPC flame graphs). Low IPC means the CPU is stalled waiting on memory rather than computing; high IPC means it's genuinely instruction-bound. Reading the counters themselves costs essentially nothing — the hardware counts on its own. The catch is access, not cost.",
+    howto: `# FIRST: check whether the PMU is even exposed. On virtualised EC2
+# instances hardware counters are often masked by the hypervisor —
+# AWS opened a subset of "architectural PMCs" on Nitro generations,
+# but it is not guaranteed, and this cluster runs m7a (AMD EPYC),
+# where I could not verify support. Test before assuming:
+perf stat -e cycles,instructions sleep 1
+ls /sys/bus/event_source/devices/          # want a real "cpu" entry
+
+# If supported, sample both counters and build the graph:
+perf record -e cycles:u -e instructions:u -g -p $PID -- sleep 30
+perf script | ./stackcollapse-perf.pl > ipc.folded
+
+# Note: producing a *properly* IPC-coloured graph means correlating the
+# two event streams per stack — see Gregg's CPI flame graph write-up.
+# A plain cycles-only graph is the easier, more common fallback.`,
+    data: `
+service-a;crypto/ecdsa.SignASN1;crypto/elliptic.(*nistPoint).ScalarBaseMult;math/big.nat.mul 940000000 2680000000
+service-a;crypto/ecdsa.VerifyASN1;crypto/elliptic.(*nistPoint).ScalarMult;math/big.nat.montgomery 1180000000 3420000000
+service-a;crypto/cipher.(*gcmAsm).Seal;crypto/aes.encryptBlockAsm 268000000 812000000
+service-a;crypto/cipher.(*gcmAsm).Open;crypto/aes.decryptBlockAsm 214000000 651000000
+service-a;crypto/x509.ParseCertificate;encoding/asn1.parseField;reflect.Value.Set 486000000 291000000
+service-a;crypto/x509.(*CertPool).findPotentialParents;bytes.Equal 152000000 68000000
+service-a;runtime.gcBgMarkWorker;runtime.gcDrain;runtime.scanobject 720000000 216000000
+service-a;runtime.gcBgMarkWorker;runtime.gcDrain;runtime.greyobject 310000000 74000000
+service-a;runtime.mallocgc;runtime.(*mcache).nextFree;runtime.(*mcentral).cacheSpan 288000000 92000000
+service-a;encoding/json.(*decodeState).object;runtime.mapassign_faststr 344000000 158000000
+service-a;encoding/json.(*decodeState).literalStore;runtime.slicebytetostring 196000000 142000000
+service-a;text/template.(*state).walk;reflect.Value.Call 262000000 188000000
+service-a;runtime.memmove 124000000 410000000
+service-a;runtime.memclrNoHeapPointers 98000000 322000000
+service-a;internal/poll.(*FD).Read;syscall.read 176000000 96000000
+`
+  }
+];
+
+/* ------------------------------ page build ------------------------------- */
+
+const panelsEl = document.getElementById("panels");
+
+for (const p of PANELS) {
+  const sec = document.createElement("section");
+  sec.className = "panel";
+  sec.id = p.id;
+
+  const head = document.createElement("header");
+  head.innerHTML =
+    `<h2>${p.title}</h2>` +
+    `<div class="meta">${p.meta}</div>` +
+    `<p class="desc">${p.desc}</p>`;
+  sec.appendChild(head);
+
+  const host = document.createElement("div");
+  host.className = "fg-host";
+  sec.appendChild(host);
+
+  const foot = document.createElement("footer");
+  if (p.mode === "ipc") {
+    foot.innerHTML =
+      `<span class="legend"><span>IPC low (stalled)</span><span class="bar"></span><span>high (compute-bound)</span></span>` +
+      `<span>Click a frame to zoom · click it again to reset</span>`;
+  } else {
+    foot.innerHTML =
+      `<span>Colour is per-function only — it carries no meaning beyond telling frames apart</span>` +
+      `<span>Click a frame to zoom · click it again to reset</span>`;
+  }
+  sec.appendChild(foot);
+
+  const how = document.createElement("details");
+  how.className = "howto";
+  how.innerHTML = `<summary>How to capture real data for this panel</summary><pre>${escapeHtml(p.howto)}</pre>`;
+  sec.appendChild(how);
+
+  panelsEl.appendChild(sec);
+  renderGraph(host, p);
+}
+
+document.getElementById("search").addEventListener("input", e => applySearch(e.target.value));
+document.getElementById("clearSearch").addEventListener("click", () => {
+  document.getElementById("search").value = ""; applySearch("");
+});
+document.getElementById("resetAll").addEventListener("click", () => graphs.forEach(g => g.reset()));
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const dark = cur ? cur === "dark"
+    : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+});
+</script>
+</body>
+</html>
