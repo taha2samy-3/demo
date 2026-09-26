@@ -1,0 +1,74 @@
+import px
+
+# ---------------------------------------------------------------------------
+# Exports HTTP request/response bodies to the external OTLP collector
+# (pixie-collector) AND shows a live table of exactly what's being sent —
+# one script, one dashboard, both together instead of a blind background
+# export with nothing to look at in the Live UI.
+#
+# Same px.otel.trace.Span() approach as export_http_body_otel.pxl (px.otel
+# has no Log/Logs type — verified against src/carnot/planner/objects/
+# otel.h — so this uses Span, and pixie-collector's TraceServiceServicer
+# is what receives it). This version just also `return`s the dataframe so
+# a Table widget can display it. A DataFrame in PxL can feed more than one
+# sink (export + display) from the same node — verified no such
+# restriction exists in the planner — so this is the same data on both
+# sides, not two separate queries.
+#
+# I could not run this against a live Vizier from here — sanity-check the
+# first run's preview table against what actually shows up on the
+# collector's :5000 dashboard before trusting either one blindly.
+#
+# Scoped to tls-demo-full / tls-demo-stripped only — earlier runs with no
+# namespace filter also pulled in cluster-internal noise (CoreDNS health
+# checks, pl-nats' web UI, vizier-metadata's internal gRPC calls, and even
+# pixie-collector capturing its own /api/data responses about itself).
+# ---------------------------------------------------------------------------
+
+
+def export_and_preview(start_time: str, collector_url: str, insecure: bool,
+                        ns_full: str, ns_stripped: str):
+    df = px.DataFrame(table='http_events', start_time=start_time)
+    df = df[df.trace_role == 2]  # server side — see the note in
+    # export_http_body_otel.pxl about verifying this against
+    # `px run px/http_data` if it ever comes back empty.
+
+    df.namespace = df.ctx['namespace']
+    df = df[(df.namespace == ns_full) or (df.namespace == ns_stripped)]
+
+    df.service = df.ctx['service']
+    df.pod = df.ctx['pod']
+    df.start_time = df.time_
+    df.end_time = df.time_ + px.DurationNanos(df.latency)
+
+    df = df[['start_time', 'end_time', 'service', 'pod', 'req_method', 'req_path',
+             'req_body', 'resp_status', 'resp_body', 'remote_addr']]
+
+    px.export(
+        df,
+        px.otel.Data(
+            resource={'service.name': df.service},
+            data=[
+                px.otel.trace.Span(
+                    name=df.req_path,
+                    start_time=df.start_time,
+                    end_time=df.end_time,
+                    attributes={
+                        'http.method': df.req_method,
+                        'http.status_code': df.resp_status,
+                        'net.peer.ip': df.remote_addr,
+                        'k8s.pod.name': df.pod,
+                        'req_body': df.req_body,
+                        'resp_body': df.resp_body,
+                    },
+                ),
+            ],
+            endpoint=px.otel.Endpoint(
+                url=collector_url,
+                insecure=insecure,
+            ),
+        ),
+    )
+
+    # Same rows that were just exported — this is the "preview" half.
+    return df

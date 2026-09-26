@@ -1,0 +1,54 @@
+{
+  "variables": [
+    {
+      "name": "start_time",
+      "type": "PX_STRING",
+      "description": "The relative start time of the window. Current time is assumed to be now.",
+      "defaultValue": "-30s"
+    },
+    {
+      "name": "collector_url",
+      "type": "PX_STRING",
+      "description": "pixie-collector's gRPC OTLP endpoint (host:port).",
+      "defaultValue": "pixie-collector.pixie-collector.svc.cluster.local:4317"
+    },
+    {
+      "name": "insecure",
+      "type": "PX_BOOLEAN",
+      "description": "Set true while otlp_receiver.py still only binds add_insecure_port (no TLS).",
+      "defaultValue": "true"
+    },
+    {
+      "name": "ns_full",
+      "type": "PX_NAMESPACE",
+      "description": "Namespace running the full (symbols kept) build.",
+      "defaultValue": "tls-demo-full"
+    },
+    {
+      "name": "ns_stripped",
+      "type": "PX_NAMESPACE",
+      "description": "Namespace running the stripped (symbols removed) build.",
+      "defaultValue": "tls-demo-stripped"
+    }
+  ],
+  "globalFuncs": [],
+  "widgets": [
+    {
+      "name": "Exported to pixie-collector (live preview)",
+      "position": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "func": {
+        "name": "export_and_preview",
+        "args": [
+          { "name": "start_time", "variable": "start_time" },
+          { "name": "collector_url", "variable": "collector_url" },
+          { "name": "insecure", "variable": "insecure" },
+          { "name": "ns_full", "variable": "ns_full" },
+          { "name": "ns_stripped", "variable": "ns_stripped" }
+        ]
+      },
+      "displaySpec": {
+        "@type": "types.px.dev/px.vispb.Table"
+      }
+    }
+  ]
+}
