@@ -22,13 +22,19 @@ task seccomp:start-recording       # apply ProfileRecordings, restart the pods
 
 task seccomp:stop-recording         # finalizes recording -> SeccompProfile CRDs
 task seccomp:list                   # see what was produced
-task seccomp:export                 # dump every profile to ./seccomp-profiles/
+task seccomp:dump                   # write full, re-applyable YAML manifests to ./seccomp-profiles/
+task seccomp:export                 # dump every profile's .spec as JSON to ./seccomp-profiles/
 task seccomp:diff                   # compare full vs stripped syscall surfaces
 ```
 
-`task seccomp:show NAME=service-a NS=tls-demo-full` prints one profile's full
-JSON for closer inspection; `task seccomp:show-all` prints all 4 at once (no
-args needed).
+`export` and `dump` write to the same `./seccomp-profiles/<namespace>/`
+directory, just as `.json` (spec only — what `diff` parses with `jq`) and
+`.yaml` (the complete CRD, noisy server-side fields stripped, ready to
+`kubectl apply`) respectively — long syscall lists are much easier to read
+and diff as files than printed to a terminal, which is why there's no
+"print one profile" task. `task seccomp:show-all` still prints the JSON for
+all 4 profiles at once (no args needed) if you just want a quick look
+without leaving the terminal.
 
 `task seccomp:scale-down` / `task seccomp:scale-up` scale service-a/service-b
 to 0 and back to 1 in both namespaces. `stop-recording` already calls these
@@ -104,6 +110,6 @@ Check all three, since more than one can apply at once:
    plain `kubectl get seccompprofile -n <ns>` silently ignores the `-n` and
    either lists everything or (before any profile exists) just looks empty
    either way, which can look identical to namespace-scoping actually
-   working. `list`/`show`/`show-all`/`export`/`clean` all filter on the
+   working. `list`/`show-all`/`dump`/`export`/`clean` all filter on the
    `spo.x-k8s.io/recording-namespace` label instead, which is what's
    actually set correctly on every generated profile.

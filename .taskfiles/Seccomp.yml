@@ -127,19 +127,42 @@ tasks:
       - echo "--- {{.NS_STRIPPED}} ---"
       - 'kubectl get seccompprofile -l spo.x-k8s.io/recording-namespace={{.NS_STRIPPED}} -o custom-columns="NAME:.metadata.name,STATUS:.status.status,LOCALHOSTPROFILE:.status.localhostProfile"'
 
-  show:
-    desc: 'Print one SeccompProfile as formatted JSON. Usage: task seccomp:show NAME=service-a NS=tls-demo-full'
+  dump:
+    desc: 'Write every generated SeccompProfile as a full, re-applyable YAML manifest to {{.PROFILE_OUT_DIR}}/<namespace>/<recording-id>.yaml'
+    # Long syscall lists are far easier to read and diff as files than
+    # printed to the terminal one at a time — this replaces the old `show`
+    # task. Requires yq (mikefarah/yq) to strip server-side noise from the
+    # full `kubectl get -o yaml` output; fail loudly up front rather than
+    # silently writing unfiltered YAML if it's missing.
     preconditions:
-      - sh: 'test -n "{{.NAME}}"'
-        msg: 'NAME is required, e.g. task seccomp:show NAME=service-a NS=tls-demo-full'
-      - sh: 'test -n "{{.NS}}"'
-        msg: 'NS is required, e.g. task seccomp:show NAME=service-a NS=tls-demo-full'
+      - sh: 'command -v yq >/dev/null 2>&1'
+        msg: 'yq is required for seccomp:dump (strips managedFields/resourceVersion/uid/generation/creationTimestamp/status before writing) — install it first, e.g. from https://github.com/mikefarah/yq'
     cmds:
-      # NAME here is the ProfileRecording name (e.g. "service-a"), not the
-      # generated SeccompProfile's own metadata.name (which has a random
-      # per-pod suffix) — look it up by its recording-id/recording-namespace
-      # labels instead, cluster-scoped so no -n.
-      - kubectl get seccompprofile -l spo.x-k8s.io/recording-id={{.NAME}},spo.x-k8s.io/recording-namespace={{.NS}} -o jsonpath='{.items[0].spec}' | jq .
+      - |
+        set -e
+        total=0
+        for ns in {{.NS_FULL}} {{.NS_STRIPPED}}; do
+          names=$(kubectl get seccompprofile -l spo.x-k8s.io/recording-namespace="$ns" -o jsonpath='{.items[*].metadata.name}')
+          if [ -z "$names" ]; then
+            echo "No SeccompProfiles found for $ns yet — run 'task seccomp:start-recording' then 'task seccomp:stop-recording' first."
+            continue
+          fi
+          mkdir -p "{{.PROFILE_OUT_DIR}}/$ns"
+          for name in $names; do
+            # File name is the recording-id label (e.g. "service-a"), not the
+            # object's own metadata.name (which carries a random per-pod
+            # suffix) — matches the basename `export` already writes its
+            # .json alongside, so the pair sits together in the same dir.
+            recording_id=$(kubectl get seccompprofile "$name" -o jsonpath='{.metadata.labels.spo\.x-k8s\.io/recording-id}')
+            out="{{.PROFILE_OUT_DIR}}/$ns/${recording_id:-$name}.yaml"
+            kubectl get seccompprofile "$name" -o yaml \
+              | yq 'del(.metadata.managedFields, .metadata.resourceVersion, .metadata.uid, .metadata.generation, .metadata.creationTimestamp, .status)' \
+              > "$out"
+            echo "wrote $out"
+            total=$((total + 1))
+          done
+        done
+        echo "Dumped $total profile(s)."
 
   show-all:
     desc: 'Print full JSON for all 4 profiles (service-a/service-b x full/stripped) at once, no args needed'
